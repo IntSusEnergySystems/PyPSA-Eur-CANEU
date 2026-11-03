@@ -3166,6 +3166,50 @@
         }
       }
     },
+    "PatexConfig": {
+      "description": "PatEx \u2192 PyPSA-Eur demand soft-link.",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Use PatEx demands for the countries of the run.",
+          "type": "boolean"
+        },
+        "coupling_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bundle written by `patex-pypsa export-coupling` (holds pypsa_inputs/)."
+        },
+        "fallback_countries": {
+          "description": "Countries without PatEx data: they keep the PyPSA-Eur preprocessed demands. Any other modelled country missing from the PatEx bundle is an error.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "energy_totals": {
+          "default": true,
+          "description": "Override buildings, transport and agriculture annual totals per country.",
+          "type": "boolean"
+        },
+        "industry": {
+          "default": true,
+          "description": "Override industrial final energy per carrier.",
+          "type": "boolean"
+        },
+        "base_load": {
+          "default": true,
+          "description": "Rescale the residual electricity load per country to the PatEx value.",
+          "type": "boolean"
+        }
+      }
+    },
     "PlottingConfig": {
       "description": "Configuration for top level `plotting` settings.",
       "properties": {
@@ -16444,6 +16488,50 @@
           },
           "description": "Colors used to represent technologies and carriers consistently across all plots. Values must be hex color strings, e.g. ``#235ebc``.",
           "type": "object"
+        }
+      }
+    },
+    "patex": {
+      "description": "PatEx \u2192 PyPSA-Eur demand soft-link.",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Use PatEx demands for the countries of the run.",
+          "type": "boolean"
+        },
+        "coupling_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bundle written by `patex-pypsa export-coupling` (holds pypsa_inputs/)."
+        },
+        "fallback_countries": {
+          "description": "Countries without PatEx data: they keep the PyPSA-Eur preprocessed demands. Any other modelled country missing from the PatEx bundle is an error.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "energy_totals": {
+          "default": true,
+          "description": "Override buildings, transport and agriculture annual totals per country.",
+          "type": "boolean"
+        },
+        "industry": {
+          "default": true,
+          "description": "Override industrial final energy per carrier.",
+          "type": "boolean"
+        },
+        "base_load": {
+          "default": true,
+          "description": "Rescale the residual electricity load per country to the PatEx value.",
+          "type": "boolean"
         }
       }
     }

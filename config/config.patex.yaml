@@ -1,0 +1,32 @@
+# PatEx → PyPSA-Eur coupled run (CAN Europe PAC 2.0 scenario).
+# Run: pixi run snakemake --configfile config/config.patex.yaml -c4
+
+run:
+  name: patex-pac2
+
+foresight: myopic
+# Must be a subset of the horizons exported by `patex-pypsa export-coupling`.
+planning_horizons: [2030, 2040, 2050]
+
+patex:
+  enable: true
+  coupling_dir: ../PATEX2PYPSA/runs/pac2   # contains pypsa_inputs/
+  # Not in PatEx (dataset 47.x.4): keep the PyPSA-Eur preprocessed demands.
+  fallback_countries: [AL, BA, CH, GB, ME, MK, "NO", RS, XK]  # "NO": YAML reads NO as false
+  energy_totals: true
+  industry: true
+  base_load: true
+
+sector:
+  # PatEx demands already embed renovation and efficiency: do not let
+  # PyPSA-Eur reduce them a second time.
+  reduce_space_heat_exogenously: false
+  # Agriculture machinery: the export already puts PatEx's electric machinery in
+  # `total agriculture electricity` and leaves only liquid fuel in `total
+  # agriculture machinery`, so none of it is electrified again here.
+  agriculture_machinery_electric_share: 0
+  agriculture_machinery_oil_share: 1
+  # Land transport: for the PatEx countries, the driven distance and the EV /
+  # fuel-cell / ICE shares per node come from PatEx road energy by carrier
+  # (patex_pypsa.transport). `sector.land_transport_*_share` then only apply to
+  # the fallback countries (PyPSA-Eur defaults).

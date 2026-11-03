@@ -1601,3 +1601,21 @@ overpass_api:
     project_name: "PyPSA-Eur"
     email: "contact@pypsa.org"
     website: "https://github.com/PyPSA/pypsa-eur"
+
+# docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#patex_cf
+patex:
+  enable: false
+  coupling_dir:
+  fallback_countries:
+  - AL
+  - BA
+  - CH
+  - GB
+  - ME
+  - MK
+  - 'NO'
+  - RS
+  - XK
+  energy_totals: true
+  industry: true
+  base_load: true

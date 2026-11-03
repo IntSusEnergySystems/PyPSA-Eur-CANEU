@@ -61,7 +61,20 @@ if __name__ == "__main__":
 
     nodal_df["current electricity"] = nodal_today["electricity"]
 
+    # PatEx soft-link: country totals per carrier from PatEx, nodal split from
+    # PyPSA-Eur. `current electricity` (today's load) is left untouched.
+    if snakemake.input.get("patex_industry"):
+        from patex_pypsa import override_country_totals
+
+        pop_layout = pd.read_csv(snakemake.input.clustered_pop_layout, index_col=0)
+        nodal_df = override_country_totals(
+            nodal_df,
+            pd.read_csv(snakemake.input.patex_industry, index_col=0),
+            pop_layout.ct,
+            pop_layout.fraction,
+        )
+
     nodal_df.index.name = "TWh/a (MtCO2/a)"
 
     fn = snakemake.output.industrial_energy_demand_per_node
-    nodal_df.to_csv(fn, float_format="%.2f")
+    nodal_df.to_csv(fn, float_format="%.6f")

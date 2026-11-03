@@ -2370,7 +2370,8 @@ def add_ice_cars(
     )
 
     # Calculate oil demand profile
-    profile = ice_share * p_set.div(efficiency).rename(
+    # multiply before renaming: ice_share may be a per-node Series (PatEx soft-link)
+    profile = (ice_share * p_set.div(efficiency)).rename(
         columns=lambda x: x + " land transport oil"
     )
 
@@ -2421,6 +2422,7 @@ def add_land_transport(
     spatial,
     investment_year,
     nodes,
+    patex_energy=None,
 ) -> None:
     """
     Add land transport demand and infrastructure to the network.
@@ -2452,6 +2454,10 @@ def add_land_transport(
         Year for which to get the transport shares
     nodes : list-like
         List of spatial nodes to consider
+    patex_energy : pd.DataFrame, optional
+        PatEx soft-link: node × engine (electric, fuel_cell, ice) final energy
+        in MWh. These nodes get the driven distance and drivetrain shares that
+        reproduce it; the other nodes keep the config shares.
 
     Returns
     -------
@@ -2490,7 +2496,51 @@ def add_land_transport(
     # temperature for correction factor for heating/cooling
     temperature = xr.open_dataarray(temp_air_total_file).to_pandas()
 
-    if shares["electric"] > 0:
+    if patex_energy is not None:
+        from patex_pypsa import land_transport_from_energy
+
+        degree_factors = {
+            "electric": ("EV_lower_degree_factor", "EV_upper_degree_factor"),
+            "fuel_cell": ("ICE_lower_degree_factor", "ICE_upper_degree_factor"),
+            "ice": ("ICE_lower_degree_factor", "ICE_upper_degree_factor"),
+        }
+        shape = p_set / p_set.sum()
+        temperature_factor = pd.DataFrame(
+            {
+                engine: (
+                    shape
+                    * (
+                        1
+                        + transport_degree_factor(
+                            temperature[nodes],
+                            options["transport_heating_deadband_lower"],
+                            options["transport_heating_deadband_upper"],
+                            options[lower],
+                            options[upper],
+                        )
+                    )
+                ).sum()
+                for engine, (lower, upper) in degree_factors.items()
+            }
+        )
+        p_set, shares = land_transport_from_energy(
+            p_set,
+            patex_energy,
+            {
+                engine: options[f"transport_{engine}_efficiency"]
+                for engine in engine_types
+            },
+            temperature_factor,
+            shares,
+        )
+        logger.info(
+            "PatEx land transport shares per node (min-max): "
+            + ", ".join(
+                f"{e} {shares[e].min():.0%}-{shares[e].max():.0%}" for e in engine_types
+            )
+        )
+
+    if np.any(shares["electric"] > 0):
         add_EVs(
             n,
             avail_profile,
@@ -2503,7 +2553,7 @@ def add_land_transport(
             options,
         )
 
-    if shares["fuel_cell"] > 0:
+    if np.any(shares["fuel_cell"] > 0):
         add_fuel_cell_cars(
             n=n,
             p_set=p_set,
@@ -2512,7 +2562,7 @@ def add_land_transport(
             options=options,
             spatial=spatial,
         )
-    if shares["ice"] > 0:
+    if np.any(shares["ice"] > 0):
         add_ice_cars(
             n,
             costs,
@@ -5107,6 +5157,7 @@ def add_shipping(
     options: dict,
     spatial: SimpleNamespace,
     investment_year: int,
+    patex_totals: pd.DataFrame | None = None,
 ) -> None:
     logger.info("Add shipping")
 
@@ -5130,6 +5181,16 @@ def add_shipping(
     international_navigation = (
         pd.read_csv(shipping_demand_file, index_col=0).squeeze(axis=1) * nyears
     )
+    if patex_totals is not None:
+        from patex_pypsa import override_country_totals
+
+        # PatEx soft-link: PatEx country totals, spread over ports as in PyPSA-Eur
+        international_navigation = override_country_totals(
+            international_navigation.to_frame("total international navigation"),
+            patex_totals,
+            pop_layout.ct,
+            pop_layout.fraction,
+        )["total international navigation"]
     all_navigation = domestic_navigation + international_navigation
     p_set = all_navigation * 1e6 / nhours
 
@@ -6154,6 +6215,46 @@ def main(
         )
         pop_weighted_energy_totals.update(pop_weighted_heat_totals)
 
+    # PatEx soft-link: annual totals per country from PatEx, nodal split from
+    # PyPSA-Eur. Countries not in the PatEx bundle keep the PyPSA-Eur values.
+    patex = params.patex
+    patex_totals = None
+    patex_land_transport = None
+    if patex["enable"]:
+        from patex_pypsa import override_country_totals
+
+        patex_totals = (
+            pd.read_csv(inputs.patex_energy_totals, index_col=0) * nyears
+        )
+        if patex["energy_totals"]:
+            # The historical load still holds today's electric heating, which
+            # build_heat_demand subtracts with these (now PatEx) values: the
+            # base-load rescaling at the end of main() fixes the residual.
+            assert patex["base_load"], "patex.energy_totals requires patex.base_load"
+            pop_weighted_energy_totals["hydrogen road"] = 0.0
+            pop_weighted_energy_totals = override_country_totals(
+                pop_weighted_energy_totals,
+                patex_totals,
+                pop_layout.ct,
+                pop_layout.fraction,
+            )
+            e = pop_weighted_energy_totals.loc[
+                pop_layout.index[pop_layout.ct.isin(patex_totals.index)]
+            ]
+            # same land-transport scope as build_transport_demand: road plus
+            # non-electric rail (electric rail stays in the base load)
+            patex_land_transport = 1e6 * pd.DataFrame(
+                {
+                    "electric": e["electricity road"],
+                    "fuel_cell": e["hydrogen road"],
+                    "ice": e["total road"]
+                    + e["total rail"]
+                    - e["electricity rail"]
+                    - e["electricity road"]
+                    - e["hydrogen road"],
+                }
+            )
+
     fn = inputs.gas_input_nodes_simplified
     gas_input_nodes = pd.read_csv(fn, index_col=0) if fn else None
 
@@ -6252,6 +6353,7 @@ def main(
             spatial=spatial,
             investment_year=current_horizon,
             nodes=spatial.nodes,
+            patex_energy=patex_land_transport,
         )
 
     if options["heating"]:
@@ -6333,6 +6435,7 @@ def main(
             options=options,
             spatial=spatial,
             investment_year=current_horizon,
+            patex_totals=patex_totals if patex["energy_totals"] else None,
         )
 
     if options["aviation"]:
@@ -6424,5 +6527,16 @@ def main(
     )
     if options["cluster_heat_buses"] and not first_year_myopic:
         cluster_heat_buses(n)
+
+    # PatEx soft-link: rescale the residual electricity load (once heat, industry
+    # and distribution losses have been taken out) to the PatEx base load.
+    if patex["enable"] and patex["base_load"]:
+        weights = n.snapshot_weightings.generators
+        elec = n.loads.index[n.loads.carrier == "electricity"]
+        for ct, total in patex_totals["electricity base load"].items():
+            loads_i = elec[elec.str[:2] == ct]
+            current = n.loads_t.p_set[loads_i].multiply(weights, axis=0).sum().sum()
+            if current > 0:
+                n.loads_t.p_set[loads_i] *= total * 1e6 / current
 
     logger.info("Completed sector components")

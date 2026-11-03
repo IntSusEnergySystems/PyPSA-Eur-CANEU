@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Contributors to PyPSA-Eur <https://github.com/pypsa/pypsa-eur>
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# PatEx soft-link test, on top of the sector test:
+# pixi run snakemake --configfile config/test/config.overnight.yaml config/test/config.patex.yaml -c4
+# Needs a coupling bundle (`patex-pypsa export-coupling`) with horizon 2030.
+
+run:
+  name: "test-patex-overnight"
+
+patex:
+  enable: true
+  coupling_dir: ../PATEX2PYPSA/runs/levers2
+
+sector:
+  reduce_space_heat_exogenously: false
+  agriculture_machinery_electric_share: 0
+  agriculture_machinery_oil_share: 1
+
+solving:
+  check_objective:
+    enable: false

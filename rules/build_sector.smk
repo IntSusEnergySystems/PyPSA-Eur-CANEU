@@ -1152,6 +1152,12 @@ rule build_industrial_energy_demand_per_node:
         industrial_energy_demand_per_node_today=resources(
             "industrial_energy_demand_today.csv"
         ),
+        patex_industry=lambda w: (
+            resources("patex_industry_{horizon}.csv")
+            if get_config(w)["patex"]["enable"] and get_config(w)["patex"]["industry"]
+            else []
+        ),
+        clustered_pop_layout=resources("pop_layout.csv"),
     output:
         industrial_energy_demand_per_node=resources(
             "industrial_energy_demand_{horizon}.csv"

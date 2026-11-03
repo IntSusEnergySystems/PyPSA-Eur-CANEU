@@ -177,6 +177,10 @@ def get_compose_inputs(w):
                 else []
             ),
         )
+        if cfg["patex"]["enable"]:
+            sector_inputs["patex_energy_totals"] = resources(
+                "patex_energy_totals_{horizon}.csv"
+            )
         inputs.update(sector_inputs)
 
     # Add brownfield inputs for non-first horizons
@@ -276,5 +280,6 @@ rule compose_network:
         ),
         co2_budget=config_provider("co2_budget"),
         adjustments=config_provider("adjustments"),
+        patex=config_provider("patex"),
     script:
         scripts("compose_network.py")

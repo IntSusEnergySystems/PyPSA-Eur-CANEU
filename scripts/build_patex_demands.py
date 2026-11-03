@@ -42,13 +42,21 @@ if __name__ == "__main__":
         )
     kept = sorted(modelled & fallback)
     if kept:
-        logger.info("PyPSA-Eur preprocessed demands kept for %s (patex.fallback_countries)", kept)
+        logger.info(
+            "PyPSA-Eur preprocessed demands kept for %s (patex.fallback_countries)",
+            kept,
+        )
     if manifest.get("uncovered_slices"):
         logger.warning(
             "%d PatEx slices are mapped by no rule (see coverage.csv)",
             manifest["uncovered_slices"],
         )
 
-    shutil.copy2(snakemake.input.energy_totals, snakemake.output.energy_totals)
-    shutil.copy2(snakemake.input.industry, snakemake.output.industry)
-    shutil.copy2(snakemake.input.manifest, snakemake.output.manifest)
+    for name in (
+        "energy_totals",
+        "industry",
+        "parameters",
+        "co2_intensity",
+        "manifest",
+    ):
+        shutil.copy2(snakemake.input[name], snakemake.output[name])

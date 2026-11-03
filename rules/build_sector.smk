@@ -1357,6 +1357,12 @@ rule build_district_heat_share:
     input:
         district_heat_share=resources("district_heat_share.csv"),
         clustered_pop_layout=resources("pop_layout.csv"),
+        patex_parameters=lambda w: (
+            resources("patex_parameters_{horizon}.csv")
+            if get_config(w)["patex"]["enable"]
+            and get_config(w)["patex"]["district_heating"]
+            else []
+        ),
     output:
         district_heat_share=resources("district_heat_share_{horizon}.csv"),
     log:

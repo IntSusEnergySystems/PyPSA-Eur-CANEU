@@ -178,9 +178,8 @@ def get_compose_inputs(w):
             ),
         )
         if cfg["patex"]["enable"]:
-            sector_inputs["patex_energy_totals"] = resources(
-                "patex_energy_totals_{horizon}.csv"
-            )
+            for name in ("energy_totals", "parameters", "co2_intensity"):
+                sector_inputs[f"patex_{name}"] = resources(f"patex_{name}_{{horizon}}.csv")
         inputs.update(sector_inputs)
 
     # Add brownfield inputs for non-first horizons

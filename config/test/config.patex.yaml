@@ -21,3 +21,7 @@ sector:
 solving:
   check_objective:
     enable: false
+
+plotting:
+  tech_colors:
+    gas feedstock for industry: "#a0522d"  # PatEx soft-link: feedstock gas load

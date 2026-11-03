@@ -2059,6 +2059,7 @@ def add_EVs(
     temperature: pd.DataFrame,
     spatial: SimpleNamespace,
     options: dict,
+    number_evs: pd.Series | None = None,
 ) -> None:
     """
     Add electric vehicle (EV) infrastructure to the network.
@@ -2086,6 +2087,9 @@ def add_EVs(
     spatial : SimpleNamespace
         Spatial configuration containing at least:
         - nodes: list or Index of node names
+    number_evs : pd.Series, optional
+        PatEx soft-link: number of EVs per node, used instead of
+        ``number_cars * electric_share`` to size chargers, DSM and V2G.
     options : dict
         Configuration options containing at least:
         - transport_electric_efficiency: float
@@ -2158,8 +2162,13 @@ def add_EVs(
         p_set=profile.loc[n.snapshots],
     )
 
+    # number of EVs: sizes chargers, DSM storage and V2G
+    fleet = number_cars * electric_share
+    if number_evs is not None:
+        fleet.loc[number_evs.index] = number_evs
+
     # Add BEV chargers
-    p_nom = number_cars * options["bev_charge_rate"] * electric_share
+    p_nom = fleet * options["bev_charge_rate"]
     n.add(
         "Link",
         spatial.nodes,
@@ -2175,12 +2184,7 @@ def add_EVs(
 
     # Add demand-side management components if enabled
     if options["bev_dsm"]:
-        e_nom = (
-            number_cars
-            * options["bev_energy"]
-            * options["bev_dsm_availability"]
-            * electric_share
-        )
+        e_nom = fleet * options["bev_energy"] * options["bev_dsm_availability"]
 
         n.add(
             "Store",
@@ -2423,6 +2427,7 @@ def add_land_transport(
     investment_year,
     nodes,
     patex_energy=None,
+    patex_evs=None,
 ) -> None:
     """
     Add land transport demand and infrastructure to the network.
@@ -2456,8 +2461,10 @@ def add_land_transport(
         List of spatial nodes to consider
     patex_energy : pd.DataFrame, optional
         PatEx soft-link: node × engine (electric, fuel_cell, ice) final energy
-        in MWh. These nodes get the driven distance and drivetrain shares that
-        reproduce it; the other nodes keep the config shares.
+        in MWh. The loads of these nodes keep PyPSA-Eur's hourly profile and are
+        scaled to it; the other nodes keep the config shares.
+    patex_evs : pd.Series, optional
+        PatEx soft-link: number of EVs per node (chargers, DSM, V2G).
 
     Returns
     -------
@@ -2497,47 +2504,45 @@ def add_land_transport(
     temperature = xr.open_dataarray(temp_air_total_file).to_pandas()
 
     if patex_energy is not None:
-        from patex_pypsa import land_transport_from_energy
+        from patex_pypsa import land_transport_scale
 
+        # PyPSA-Eur's profile of each load for a share of 1 (traffic and
+        # temperature, EV smoothed as in add_EVs), scaled to PatEx's energy:
+        # the factor takes the place of the share in add_EVs & co.
         degree_factors = {
             "electric": ("EV_lower_degree_factor", "EV_upper_degree_factor"),
             "fuel_cell": ("ICE_lower_degree_factor", "ICE_upper_degree_factor"),
             "ice": ("ICE_lower_degree_factor", "ICE_upper_degree_factor"),
         }
-        shape = p_set / p_set.sum()
-        temperature_factor = pd.DataFrame(
-            {
-                engine: (
-                    shape
-                    * (
-                        1
-                        + transport_degree_factor(
-                            temperature[nodes],
-                            options["transport_heating_deadband_lower"],
-                            options["transport_heating_deadband_upper"],
-                            options[lower],
-                            options[upper],
-                        )
-                    )
-                ).sum()
-                for engine, (lower, upper) in degree_factors.items()
-            }
-        )
-        p_set, shares = land_transport_from_energy(
-            p_set,
-            patex_energy,
-            {
-                engine: options[f"transport_{engine}_efficiency"]
-                for engine in engine_types
-            },
-            temperature_factor,
-            shares,
-        )
-        logger.info(
-            "PatEx land transport shares per node (min-max): "
-            + ", ".join(
-                f"{e} {shares[e].min():.0%}-{shares[e].max():.0%}" for e in engine_types
+        unit_profiles = {}
+        for engine, (lower, upper) in degree_factors.items():
+            efficiency = get_temp_efficency(
+                options[f"transport_{engine}_efficiency"],
+                temperature[nodes],
+                options["transport_heating_deadband_lower"],
+                options["transport_heating_deadband_upper"],
+                options[lower],
+                options[upper],
             )
+            if engine == "electric":
+                p_shifted = (
+                    p_set + cycling_shift(p_set, 1) + cycling_shift(p_set, 2)
+                ) / 3
+                efficiency = efficiency * p_set.div(p_shifted)
+            unit_profiles[engine] = p_set.div(efficiency).loc[n.snapshots]
+        factor = land_transport_scale(
+            unit_profiles, patex_energy, n.snapshot_weightings.generators
+        )
+        shares = pd.DataFrame({e: float(shares[e]) for e in engine_types}, index=nodes)
+        shares.loc[factor.index, factor.columns] = factor
+        no_fleet = factor.index[
+            (factor["electric"] > 0) & (patex_evs.reindex(factor.index) <= 0)
+        ]
+        if len(no_fleet):
+            raise ValueError(f"PatEx EV energy but no EV fleet at {list(no_fleet)}")
+        logger.info(
+            "PatEx land transport: loads scaled to PatEx energy per fuel at "
+            f"{len(factor)} nodes, {patex_evs.sum() / 1e6:.2f} M EVs"
         )
 
     if np.any(shares["electric"] > 0):
@@ -2551,6 +2556,7 @@ def add_land_transport(
             temperature,
             spatial,
             options,
+            number_evs=patex_evs,
         )
 
     if np.any(shares["fuel_cell"] > 0):
@@ -4604,6 +4610,22 @@ def add_industry(
             lifetime=costs.at["cement capture", "lifetime"],
         )
 
+    if "methane feedstock" in industrial_demand:
+        # PatEx soft-link: feedstock gas (ammonia, olefins) is not burnt, the CO2
+        # it releases is in the PatEx process emissions
+        n.add("Carrier", "gas feedstock for industry")
+        feedstock = industrial_demand.loc[nodes, "methane feedstock"] / nhours
+        if len(spatial.gas.nodes) == 1:
+            feedstock = pd.Series(feedstock.sum(), index=spatial.gas.locations)
+        n.add(
+            "Load",
+            feedstock.index,
+            suffix=" gas feedstock for industry",
+            bus=spatial.gas.nodes,
+            carrier="gas feedstock for industry",
+            p_set=feedstock.values,
+        )
+
     n.add(
         "Load",
         nodes,
@@ -6220,12 +6242,11 @@ def main(
     patex = params.patex
     patex_totals = None
     patex_land_transport = None
+    patex_evs = None
     if patex["enable"]:
         from patex_pypsa import override_country_totals
 
-        patex_totals = (
-            pd.read_csv(inputs.patex_energy_totals, index_col=0) * nyears
-        )
+        patex_totals = pd.read_csv(inputs.patex_energy_totals, index_col=0) * nyears
         if patex["energy_totals"]:
             # The historical load still holds today's electric heating, which
             # build_heat_demand subtracts with these (now PatEx) values: the
@@ -6254,6 +6275,14 @@ def main(
                     - e["hydrogen road"],
                 }
             )
+            # EVs per node: PatEx country fleet, split like PyPSA-Eur's cars
+            number_cars = pd.read_csv(inputs.transport_data, index_col=0)["number cars"]
+            patex_evs = override_country_totals(
+                number_cars.to_frame("number evs"),
+                pd.read_csv(inputs.patex_parameters, index_col=0)[["number evs"]],
+                pop_layout.ct,
+                pop_layout.fraction,
+            ).loc[e.index, "number evs"]
 
     fn = inputs.gas_input_nodes_simplified
     gas_input_nodes = pd.read_csv(fn, index_col=0) if fn else None
@@ -6354,6 +6383,7 @@ def main(
             investment_year=current_horizon,
             nodes=spatial.nodes,
             patex_energy=patex_land_transport,
+            patex_evs=patex_evs,
         )
 
     if options["heating"]:

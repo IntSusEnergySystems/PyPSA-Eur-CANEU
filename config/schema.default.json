@@ -3200,7 +3200,17 @@
         },
         "industry": {
           "default": true,
-          "description": "Override industrial final energy per carrier.",
+          "description": "Override industrial final energy per carrier and process emissions.",
+          "type": "boolean"
+        },
+        "co2_intensity": {
+          "default": true,
+          "description": "CO2 intensity of gas, oil and coal from PatEx's emission factors.",
+          "type": "boolean"
+        },
+        "district_heating": {
+          "default": true,
+          "description": "District heating share of heat demand per country from PatEx.",
           "type": "boolean"
         },
         "base_load": {
@@ -16525,7 +16535,17 @@
         },
         "industry": {
           "default": true,
-          "description": "Override industrial final energy per carrier.",
+          "description": "Override industrial final energy per carrier and process emissions.",
+          "type": "boolean"
+        },
+        "co2_intensity": {
+          "default": true,
+          "description": "CO2 intensity of gas, oil and coal from PatEx's emission factors.",
+          "type": "boolean"
+        },
+        "district_heating": {
+          "default": true,
+          "description": "District heating share of heat demand per country from PatEx.",
           "type": "boolean"
         },
         "base_load": {

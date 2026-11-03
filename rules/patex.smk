@@ -14,14 +14,18 @@ def patex_input(name):
 
 
 rule build_patex_demands:
-    """Copies the PatEx annual demands of one horizon into resources/."""
+    """Copies the PatEx inputs of one horizon (demands, parameters, CO2 intensity) into resources/."""
     input:
         energy_totals=patex_input("patex_energy_totals_{horizon}.csv"),
         industry=patex_input("patex_industry_{horizon}.csv"),
+        parameters=patex_input("patex_parameters_{horizon}.csv"),
+        co2_intensity=patex_input("patex_co2_intensity_{horizon}.csv"),
         manifest=patex_input("manifest.json"),
     output:
         energy_totals=resources("patex_energy_totals_{horizon}.csv"),
         industry=resources("patex_industry_{horizon}.csv"),
+        parameters=resources("patex_parameters_{horizon}.csv"),
+        co2_intensity=resources("patex_co2_intensity_{horizon}.csv"),
         manifest=resources("patex_manifest_{horizon}.json"),
     params:
         countries=config_provider("countries"),

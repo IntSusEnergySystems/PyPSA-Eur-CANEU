@@ -92,6 +92,21 @@ if __name__ == "__main__":
     nyears = n.snapshot_weightings.objective.sum() / 8760.0
     costs = load_costs(snakemake.input.tech_costs)
 
+    # PatEx soft-link: CO2 intensity of gas, oil and coal from PatEx's factors
+    # (weighted by its fuel use), so that PyPSA counts the CO2 PatEx counts.
+    if params.patex["enable"] and params.patex["co2_intensity"]:
+        import pandas as pd
+
+        co2 = pd.read_csv(inputs.patex_co2_intensity, index_col=0)["CO2 intensity"]
+        logger.info(
+            "PatEx CO2 intensity [tCO2/MWh]: "
+            + ", ".join(
+                f"{c} {costs.at[c, 'CO2 intensity']:.4f} -> {v:.4f}"
+                for c, v in co2.items()
+            )
+        )
+        costs.loc[co2.index, "CO2 intensity"] = co2
+
     add_electricity_components(n, inputs, params, costs)
 
     if sector_mode:

@@ -61,12 +61,15 @@ if __name__ == "__main__":
 
     nodal_df["current electricity"] = nodal_today["electricity"]
 
-    # PatEx soft-link: country totals per carrier from PatEx, nodal split from
-    # PyPSA-Eur. `current electricity` (today's load) is left untouched.
+    # PatEx soft-link: country totals per carrier and process emissions from
+    # PatEx, nodal split from PyPSA-Eur. `current electricity` (today's load) is
+    # left untouched; ammonia, methanol and coke are 0 (in PatEx's carriers).
     if snakemake.input.get("patex_industry"):
         from patex_pypsa import override_country_totals
 
         pop_layout = pd.read_csv(snakemake.input.clustered_pop_layout, index_col=0)
+        # feedstock gas (PatEx only) is spread over the nodes like the gas use
+        nodal_df["methane feedstock"] = nodal_df["methane"]
         nodal_df = override_country_totals(
             nodal_df,
             pd.read_csv(snakemake.input.patex_industry, index_col=0),

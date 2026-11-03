@@ -110,6 +110,33 @@ if __name__ == "__main__":
         f"resulting in new average share of {dist_fraction_node.mean():.2%}"
     )
 
+    # PatEx soft-link: the country share of the horizon is PatEx's, spread over
+    # the nodes like today's share (urban population); no progress factor.
+    if snakemake.input.get("patex_parameters"):
+        patex_share = pd.read_csv(snakemake.input.patex_parameters, index_col=0)[
+            "district heat share"
+        ]
+        patex_nodes = pop_layout.index[pop_layout.ct.isin(patex_share.index)]
+        dist_fraction_node.loc[patex_nodes] = (
+            pop_layout.ct[patex_nodes].map(patex_share)
+            * pop_layout["urban_ct_fraction"][patex_nodes]
+            / pop_layout["fraction"][patex_nodes]
+        )
+        # urban fraction raised to the share where needed, from the population
+        # alone (not from today's share)
+        urban_population = pop_layout.urban / pop_layout[["rural", "urban"]].sum(axis=1)
+        urban_fraction.loc[patex_nodes] = pd.concat(
+            [urban_population, dist_fraction_node], axis=1
+        ).max(axis=1)[patex_nodes]
+        if (dist_fraction_node > 1).any():
+            raise ValueError(
+                "PatEx district heat share above 1 at "
+                f"{list(dist_fraction_node.index[dist_fraction_node > 1])}"
+            )
+        logger.info(
+            f"District heating share from PatEx for {sorted(patex_share.index.intersection(pop_layout.ct.unique()))}"
+        )
+
     df = pd.DataFrame(
         {
             "original district heat share": district_heat_share,

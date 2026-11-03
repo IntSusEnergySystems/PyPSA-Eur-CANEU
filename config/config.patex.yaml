@@ -14,7 +14,9 @@ patex:
   # Not in PatEx (dataset 47.x.4): keep the PyPSA-Eur preprocessed demands.
   fallback_countries: [AL, BA, CH, GB, ME, MK, "NO", RS, XK]  # "NO": YAML reads NO as false
   energy_totals: true
-  industry: true
+  industry: true          # carriers, feedstock gas and process emissions
+  co2_intensity: true     # gas / oil / coal CO2 intensity from PatEx's factors
+  district_heating: true  # district heating share per country
   base_load: true
 
 sector:
@@ -26,7 +28,13 @@ sector:
   # agriculture machinery`, so none of it is electrified again here.
   agriculture_machinery_electric_share: 0
   agriculture_machinery_oil_share: 1
-  # Land transport: for the PatEx countries, the driven distance and the EV /
-  # fuel-cell / ICE shares per node come from PatEx road energy by carrier
-  # (patex_pypsa.transport). `sector.land_transport_*_share` then only apply to
-  # the fallback countries (PyPSA-Eur defaults).
+  # Land transport: for the PatEx countries, the EV, fuel-cell and oil loads are
+  # PatEx's energy per fuel on PyPSA-Eur's hourly profile, and the EV fleet is
+  # PatEx's (patex_pypsa.transport). `sector.land_transport_*_share` then only
+  # apply to the fallback countries (PyPSA-Eur defaults).
+  # District heating: `sector.district_heating.potential/progress` only apply to
+  # the fallback countries. Changes and reasons: PATEX_PyPSA/MODEL_CHANGES.md.
+
+plotting:
+  tech_colors:
+    gas feedstock for industry: "#a0522d"  # PatEx soft-link: feedstock gas load

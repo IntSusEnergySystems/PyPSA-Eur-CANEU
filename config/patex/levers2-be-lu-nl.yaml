@@ -19,7 +19,7 @@ clustering:
     averaging: 3h
 
 solving:
-  mem_mb: 80000
+  mem_mb: 60000
   solver_options:
     gurobi-default:
       threads: 32

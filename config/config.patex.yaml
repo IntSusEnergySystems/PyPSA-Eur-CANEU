@@ -18,6 +18,12 @@ patex:
   co2_intensity: true     # gas / oil / coal CO2 intensity from PatEx's factors
   district_heating: true  # district heating share per country
   base_load: true
+  # PatEx convention: plastics end-of-life emit CO2 only when burned in waste CHPs
+  # (talking point with Climact / CAN).
+  plastics_eol_co2: false
+
+industry:
+  waste_to_energy: true   # waste CHPs burn non-recycled plastics (CO2 counted)
 
 sector:
   # PatEx demands already embed renovation and efficiency: do not let

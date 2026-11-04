@@ -49,6 +49,12 @@ class PatexConfig(BaseModel):
         True,
         description="Rescale the residual electricity load per country to the PatEx value.",
     )
+    plastics_eol_co2: bool = Field(
+        False,
+        description="CO2 of plastics (HVC) that are not burned for energy. False = PatEx / "
+        "inventory convention: only waste-to-energy plants emit (`industry: "
+        "waste_to_energy`); True = PyPSA-Eur default, all of it goes to the air.",
+    )
 
 
 class PatexConfigUpdater(ConfigUpdater):

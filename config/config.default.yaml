@@ -1621,3 +1621,4 @@ patex:
   co2_intensity: true
   district_heating: true
   base_load: true
+  plastics_eol_co2: false

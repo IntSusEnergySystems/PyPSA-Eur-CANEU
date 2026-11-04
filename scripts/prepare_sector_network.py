@@ -4399,6 +4399,7 @@ def add_industry(
     spatial: SimpleNamespace,
     cf_industry: dict,
     investment_year: int,
+    hvc_to_air_co2: bool = True,
 ):
     """
     Add industry and their corresponding carrier buses to the network.
@@ -4831,6 +4832,13 @@ def add_industry(
         e_max_pu=e_max_pu,
     )
 
+    # PatEx soft-link (`patex.plastics_eol_co2: false`): plastics that are not burned
+    # for energy emit nothing, as in PatEx and the inventories; waste CHPs still do.
+    if not hvc_to_air_co2 and options["municipal_solid_waste"]:
+        raise ValueError(
+            "patex.plastics_eol_co2: false with sector.municipal_solid_waste: the "
+            "biogenic credit of waste would become a net removal"
+        )
     n.add(
         "Link",
         spatial.oil.demand_locations,
@@ -4839,7 +4847,7 @@ def add_industry(
         bus1="co2 atmosphere",
         carrier="HVC to air",
         p_nom_extendable=True,
-        efficiency=costs.at["oil", "CO2 intensity"],
+        efficiency=costs.at["oil", "CO2 intensity"] if hvc_to_air_co2 else 0.0,
     )
 
     if cf_industry["waste_to_energy"] or cf_industry["waste_to_energy_cc"]:
@@ -6453,6 +6461,7 @@ def main(
             spatial=spatial,
             cf_industry=cf_industry,
             investment_year=current_horizon,
+            hvc_to_air_co2=not patex["enable"] or patex["plastics_eol_co2"],
         )
 
     if options["shipping"]:

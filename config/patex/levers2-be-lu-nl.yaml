@@ -1,0 +1,25 @@
+# PatEx run on a subset of countries, on top of config/config.patex.yaml:
+#   pixi run snakemake --configfile config/config.patex.yaml config/patex/levers2-be-lu-nl.yaml
+# Only what is specific to this run is set here; any other country set works the same
+# way (countries in the PatEx bundle, or listed in patex.fallback_countries).
+
+run:
+  name: patex-levers2-be-lu-nl
+
+countries: [BE, LU, NL]
+
+patex:
+  # Placeholder scenario (levers = 2) until the PAC 2.0 lever file (T6).
+  coupling_dir: ../PATEX2PYPSA/runs/levers2
+
+clustering:
+  cluster_network:
+    n_clusters: 10
+  temporal:
+    averaging: 3h
+
+solving:
+  mem_mb: 80000
+  solver_options:
+    gurobi-default:
+      threads: 32

@@ -1,0 +1,14 @@
+# TECHNICAL TEST ONLY, not a scenario: no CO2 cap, to check the chain (PatEx demands
+# for every horizon, solve, summaries, report) while the CO2 target is open (TODO T11).
+# Add after a run overlay:
+#   --configfile config/config.patex.yaml config/patex/levers2-be-lu-nl.yaml config/patex/test-no-co2-cap.yaml
+# The default cap (45 % of 1990 in 2030) is infeasible for BE+LU+NL with levers 2.
+
+run:
+  name: patex-levers2-be-lu-nl-test-no-co2-cap
+
+co2_budget:
+  upper: null
+
+solving:
+  mem_mb: 72000   # 2030 BE-LU-NL, 10 nodes, 3h: ~59 GB measured

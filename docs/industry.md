@@ -33,6 +33,7 @@ country are passed.
 | Step | Where | What |
 |---|---|---|
 | nodal demand per carrier | `build_industrial_energy_demand_per_node.py` | PyPSA-Eur's own nodal demand of the horizon (industrial sites × production × energy per tonne) gives each node's **share of its country, per carrier**; × PatEx country total (`override_country_totals`). `current electricity` (today's load, used to clean the historical load) is not touched |
+| hydrogen split | same | key = **gross hydrogen uses** per node (sectors with a positive hydrogen demand only). PyPSA-Eur's chlorine sector has a negative hydrogen entry (chlor-alkali by-product); PatEx has no by-product, and the net value can be negative at a node or for a whole country, which flipped the signs of the split. The by-product is not added as a supply. Fallback countries keep PyPSA-Eur's net values |
 | feedstock gas | `add_industry` | load `gas feedstock for industry` on the gas bus, **no CO2** (its CO2 is in PatEx process emissions); spread over nodes like the burnt gas |
 | burnt fuels | `add_industry` | PyPSA-Eur's industry buses / loads (`gas for industry`, `H2 for industry`, `solid biomass for industry`, `coal for industry`, `low-temperature heat for industry`, …) with combustion CO2 and optional capture |
 | process emissions | `add_industry` | PatEx values on the `process emissions` bus; capture decided by PyPSA |
@@ -55,8 +56,6 @@ error). Talking point with Climact / CAN (T23).
 ## Checks and known gaps
 
 - Ledger: every carrier, feedstock gas, process emissions per country = 1.
-- **Hydrogen split over nodes (T22)**: PyPSA-Eur's energy per tonne of chlorine has a
-  negative hydrogen entry (chlor-alkali by-product), so a node can receive a negative
-  hydrogen load although the country total (PatEx, ≥ 0, no by-product) is positive.
-  Option: nodal key from the positive part only.
+- Chlor-alkali by-product hydrogen: left out (PatEx convention); whether PatEx should
+  represent it is a question for Climact.
 - `naphtha` = all industry liquids incl. feedstock: reading to confirm with Climact (Q3, T8).

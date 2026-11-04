@@ -68,11 +68,20 @@ if __name__ == "__main__":
         from patex_pypsa import override_country_totals
 
         pop_layout = pd.read_csv(snakemake.input.clustered_pop_layout, index_col=0)
+        patex_industry = pd.read_csv(snakemake.input.patex_industry, index_col=0)
         # feedstock gas (PatEx only) is spread over the nodes like the gas use
         nodal_df["methane feedstock"] = nodal_df["methane"]
+        # hydrogen is spread like its gross uses: PatEx has no chlor-alkali
+        # by-product, and the net value (uses - by-product) can be negative at a
+        # node or for a whole country, which would flip the signs of the split
+        h2_ratios = nodal_sector_ratios.loc["hydrogen"].clip(lower=0)
+        gross_h2 = (h2_ratios * nodal_production_stacked).groupby(level=0).sum()
+        patex_nodes = pop_layout.index[pop_layout.ct.isin(patex_industry.index)]
+        patex_nodes = patex_nodes.intersection(nodal_df.index)
+        nodal_df.loc[patex_nodes, "hydrogen"] = gross_h2.reindex(patex_nodes).fillna(0.0)
         nodal_df = override_country_totals(
             nodal_df,
-            pd.read_csv(snakemake.input.patex_industry, index_col=0),
+            patex_industry,
             pop_layout.ct,
             pop_layout.fraction,
         )

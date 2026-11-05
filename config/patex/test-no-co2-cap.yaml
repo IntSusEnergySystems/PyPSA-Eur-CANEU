@@ -9,6 +9,3 @@ run:
 
 co2_budget:
   upper: null
-
-solving:
-  mem_mb: 72000   # 2030 BE-LU-NL, 10 nodes, 3h: ~59 GB measured

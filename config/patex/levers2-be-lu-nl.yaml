@@ -19,7 +19,8 @@ clustering:
     averaging: 3h
 
 solving:
-  mem_mb: 60000
+  # nic6 BE-LU-NL test (2026-11-04): solve MaxRSS 18.8 GB, 16 threads enough
+  mem_mb: 25000
   solver_options:
     gurobi-default:
-      threads: 32
+      threads: 16

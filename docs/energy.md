@@ -3,9 +3,9 @@
 ## Residual electricity load (`patex.base_load`)
 
 Bundle column `electricity base load` = building electricity − electric space and water
-heating + electric rail + electric domestic aviation and inland navigation + electric
-bunkers (aviation, shipping). It covers appliances, lighting, cooling, cooking and the
-transport electricity PyPSA-Eur has no load for.
+heating: appliances, lighting, cooling, electric cooking. Rail, aviation and shipping
+electricity have their own loads ([transport.md](transport.md)), added after the
+rescaling below with the shape of this load.
 
 PyPSA-Eur's electricity load is today's measured load, from which it removes electric
 heating (`build_heat_demand`) and today's industry electricity. At the end of

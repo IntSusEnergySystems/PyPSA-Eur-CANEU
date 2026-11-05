@@ -44,3 +44,18 @@ sector:
 plotting:
   tech_colors:
     gas feedstock for industry: "#a0522d"  # PatEx soft-link: feedstock gas load
+    land transport gas: "#a35d2c"  # PatEx soft-link: gas road vehicles
+    rail electricity: "#7ab33a"
+    aviation electricity: "#5fa3c7"
+    shipping electricity: "#4f7fa8"
+    H2 for rail: "#8b4f7d"
+  # no methanol map: PatEx has no methanol ships (Q14), so the methanol balance of
+  # PatEx countries is empty and PyPSA's explore() fails on it
+  balance_map_interactive:
+    bus_carriers:
+    - AC
+    - co2_stored
+    - gas
+    - H2
+    - oil
+    - urban_central_heat

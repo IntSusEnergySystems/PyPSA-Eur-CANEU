@@ -7,15 +7,17 @@ Source variables: `tra_energy-demand-domestic-by-carrier-user-vehicule[TWh]`,
 
 | Bundle column | PatEx rule |
 |---|---|
-| `total road`, `electricity road`, `hydrogen road` (new) | 2W, LDV, HDV, bus; all / electricity / hydrogen |
+| `total road`, `electricity road`, `hydrogen road` (new), `gas road` (new) | 2W, LDV, HDV, bus; all / electricity / hydrogen / gas (fossil, bio, syn) |
 | `total/electricity passenger cars`, `two-wheel`, `other road passenger`, `light/heavy duty road freight` | by user and vehicle type (kept for comparison) |
-| `total rail`, `electricity rail` | rail |
+| `total rail`, `electricity rail`, `hydrogen rail` (new) | rail; all / electricity / hydrogen |
 | `total domestic aviation`, `total domestic navigation` | aviation, inland waterways, **without electricity** |
 | `total international aviation`, `total international navigation` | bunkers, without electricity |
+| `electricity aviation`, `electricity navigation` (new) | domestic + bunkers, electricity |
+| `hydrogen navigation` (new) | inland waterways + bunkers-marine, hydrogen |
 | `number evs` (`patex_parameters`) | cars and vans BEV + PHEV |
 
-Electric rail, aviation and shipping go to `electricity base load` (PyPSA-Eur has no such
-loads, see [energy.md](energy.md)).
+Every PatEx transport fuel has its own load in PyPSA-Eur (below); none is hidden in the
+base load or served as another fuel. PatEx ships have no methanol or ammonia (Q14).
 
 ## Bundle → PyPSA-Eur
 
@@ -26,8 +28,10 @@ EV / fuel-cell / ICE shares that are the same everywhere. For PatEx countries it
 replaced:
 
 - energy per fuel per node: `electric` = electricity road, `fuel_cell` = hydrogen road,
-  `ice` = total road + non-electric rail − electric road − hydrogen road (country totals
-  from PatEx, split over nodes like PyPSA-Eur's energy totals);
+  `gas` = gas road, `ice` = total road + total rail − electricity rail − hydrogen rail −
+  electricity road − hydrogen road − gas road, i.e. liquid road fuels and diesel rail
+  (country totals from PatEx, split over nodes like PyPSA-Eur's energy totals; the new
+  columns like `total road` / `total rail`);
 - each load keeps PyPSA-Eur's hourly profile (traffic × temperature dependence; EV
   profile smoothed as in `add_EVs`) and is scaled so that its annual energy equals PatEx's
   (`patex_pypsa.land_transport_scale`). No distance or drivetrain efficiency enters the
@@ -35,8 +39,19 @@ replaced:
 - EV fleet (`add_EVs(number_evs=...)`): PatEx's fleet, split over nodes like PyPSA-Eur's
   cars. It sizes chargers (`bev_charge_rate`), smart-charging storage (`bev_energy` ×
   `bev_dsm_availability`) and V2G;
-- gas road vehicles (fossil, bio, syn) and hydrogen rail stay in the ICE part, served as
-  oil: PyPSA-Eur has no gas vehicles.
+- gas vehicles (`add_gas_vehicles`, new): load `land transport gas` per node with the
+  ICE profile, supplied from the gas bus through a link with combustion CO2 (like
+  `gas for industry`); PyPSA-Eur chooses fossil, bio or synthetic gas;
+- diesel rail stays in the ICE load, as in PyPSA-Eur (`build_transport_demand`).
+
+### Rail, aviation and shipping electricity, hydrogen rail (`add_patex_transport_loads`)
+
+New loads per node, added at the end of `prepare_sector_network.main`, after the base-load
+rescaling: `rail electricity`, `aviation electricity`, `shipping electricity` on the
+transmission bus (not low voltage) with the hourly shape of the node's residual
+electricity load; `H2 for rail` on the H2 bus, flat. Nodal split like `total rail`,
+aviation and navigation totals. PyPSA-Eur's measured load holds today's rail electricity:
+the base-load rescaling replaces it with PatEx's building electricity only.
 
 Countries in `fallback_countries` keep `sector.land_transport_*_share`.
 
@@ -51,8 +66,12 @@ optimised).
 - international: PyPSA-Eur's port-based split (`shipping_demand.csv`, built from today's
   totals) rescaled per country to PatEx;
 - domestic: PatEx totals in the energy totals;
-- the sum is served by PyPSA-Eur's `shipping_{oil,methanol,hydrogen}_share`, each
-  converted with its efficiency.
+- fuel split per country **from PatEx**: hydrogen share = `hydrogen navigation` / total
+  navigation, methanol share = `methanol navigation` / total if the bundle has it (PatEx
+  has no methanol ships yet, Q14), oil = the rest (marine fuel oil, fossil / bio /
+  synthetic chosen by PyPSA-Eur). PatEx's energy per fuel is used as is: no conversion with
+  `shipping_*_efficiency`. Fallback countries keep `shipping_*_share` with the conversion.
+  Ammonia ships do not exist in PyPSA-Eur; they would need a new load on the NH3 bus.
 
 ## Why
 
@@ -71,10 +90,9 @@ optimised).
 
 ## Checks and known gaps
 
-- Ledger: land transport EV / fuel cell / oil and aviation per country = 1; EV fleet = 1.
-- **Shipping (T15)**: the energy delivered differs from PatEx by the efficiency of the
-  PyPSA-Eur fuel shares (gap grows as methanol and hydrogen replace oil). Option: set the
-  shipping loads per fuel from PatEx (bunkers-marine and IWW by carrier), as for road.
+- Ledger: land transport EV / fuel cell / gas / oil, rail electricity and hydrogen,
+  aviation kerosene and electricity, shipping oil / hydrogen / electricity per country
+  = 1; EV fleet = 1.
 - **PHEV battery (T16)**: PHEVs use the car battery size of BEVs (50 kWh): smart charging
   and V2G may be overestimated where PHEVs dominate.
 - Domestic vs international aviation and navigation boundaries (Q5, T9) to confirm with

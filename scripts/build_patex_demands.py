@@ -57,6 +57,7 @@ if __name__ == "__main__":
         "industry",
         "parameters",
         "co2_intensity",
+        "industry_co2_intensity",
         "manifest",
     ):
         shutil.copy2(snakemake.input[name], snakemake.output[name])

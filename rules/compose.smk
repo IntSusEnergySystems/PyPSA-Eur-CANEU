@@ -178,7 +178,12 @@ def get_compose_inputs(w):
             ),
         )
         if cfg["patex"]["enable"]:
-            for name in ("energy_totals", "parameters", "co2_intensity"):
+            for name in (
+                "energy_totals",
+                "parameters",
+                "co2_intensity",
+                "industry_co2_intensity",
+            ):
                 sector_inputs[f"patex_{name}"] = resources(f"patex_{name}_{{horizon}}.csv")
         inputs.update(sector_inputs)
 

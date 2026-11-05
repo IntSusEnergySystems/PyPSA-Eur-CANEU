@@ -98,6 +98,8 @@ if __name__ == "__main__":
         import pandas as pd
 
         co2 = pd.read_csv(inputs.patex_co2_intensity, index_col=0)["CO2 intensity"]
+        # refinery CO2 per MWh of oil is not a fuel intensity (prepare_sector_network)
+        co2 = co2.drop("oil refining", errors="ignore")
         logger.info(
             "PatEx CO2 intensity [tCO2/MWh]: "
             + ", ".join(

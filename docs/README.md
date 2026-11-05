@@ -36,7 +36,9 @@ patex run ... -o run.pkl                       PatEx (uv env, pandas 2.2)
             patex_energy_totals_{h}.csv        country × energy_totals columns [TWh]
             patex_industry_{h}.csv             country × industrial demand columns [TWh, MtCO2]
             patex_parameters_{h}.csv           district heat share, number evs
-            patex_co2_intensity_{h}.csv        gas / oil / coal [tCO2/MWh]
+            patex_co2_intensity_{h}.csv        gas / oil / coal, oil refining [tCO2/MWh]
+            patex_industry_co2_intensity_{h}.csv  country × industry gas / oil / coal,
+                                               CRF-calibrated [tCO2/MWh]
             manifest.json                      checksums, horizons, countries
 rule build_patex_demands (rules/patex.smk)     copies one horizon into resources/, fails if
                                                a modelled country is neither in the bundle
@@ -68,7 +70,7 @@ keep PyPSA-Eur's values.
 | `fallback_countries` | AL BA CH GB ME MK NO RS XK | keep PyPSA-Eur demands |
 | `energy_totals` | true | buildings, transport, agriculture totals |
 | `industry` | true | industry carriers, feedstock gas, process emissions |
-| `co2_intensity` | true | CO2 intensity of gas / oil / coal |
+| `co2_intensity` | true | CO2 intensity of gas / oil / coal, industry factors (CRF calibration), refinery CO2 |
 | `district_heating` | true | district heating share |
 | `base_load` | true | residual electricity load (required by `energy_totals`) |
 | `plastics_eol_co2` | false | CO2 of plastics not burned for energy (false = PatEx convention) |

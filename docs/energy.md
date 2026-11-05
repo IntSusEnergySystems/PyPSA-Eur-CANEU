@@ -68,6 +68,20 @@ physical count (coke ovens and blast-furnace gases of steel, fugitive emissions,
 refining of exported products) to be added as fixed amounts or removed from the baseline,
 each with its source.
 
+## CO2 per sector: bio credits on their consumers (T35, reporting)
+
+Gas, oil and methanol are pooled in PyPSA-Eur: every consumer is charged the fossil CO2 of
+all it burns, and the carbon of the bio fuels entering the pool is credited on the entry
+link (`biogas to gas`, `unsustainable bioliquids`, `biomass to liquid`, `electrobiofuels`,
+`biomass-to-methanol`). The total is exact, but the sector lines are gross.
+`scripts/co2_by_sector.py` (PatEx-PyPSA) reports CO2 per country and sector with the bio
+credit (pool input × pool CO2 intensity) moved to the pool's consumers in proportion to
+their annual use (mass balance), like the inventory, which counts no CO2 for burnt
+biomass; the rest of an entry link's flow (capture) stays on it. Synthetic fuels are not
+moved (their carbon is captured CO2, credited where captured). The net total equals the
+CO2 to the atmosphere (checked). The optimisation is unchanged. For national caps (T28),
+where to book the credit (production or consumption) is a separate decision.
+
 ## Refineries (T26)
 
 `oil refining` (PyPSA-Eur: fossil oil passes through a refining link that emits a fixed

@@ -79,6 +79,8 @@ overlay in `config/patex/` (countries, bundle, resolution), e.g.
 
 ## Checks
 
+- `scripts/co2_by_sector.py` (PatEx-PyPSA): CO2 to the atmosphere per country and sector
+  of a solved network, bio credits on their consumers ([energy.md](energy.md)).
 - `scripts/check_network_ledger.py` (PatEx-PyPSA): loads of a composed or solved network
   per carrier and country against the bundle (ratio 1 expected, known exceptions listed
   in the sector files).

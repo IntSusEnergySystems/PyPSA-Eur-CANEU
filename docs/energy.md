@@ -108,6 +108,14 @@ technologies, CCS and storage are PyPSA-Eur's decisions.
 District heating: the share of heat demand comes from PatEx ([buildings.md](buildings.md));
 network losses are PyPSA-Eur's (`district_heating_loss`, T19).
 
+## Gas storage (data fix)
+
+Existing gas storage comes from SciGRID_gas (`IGGIELGN_Storages`). Upstream sizes it with
+`max_cushionGas_M_m3`, the gas that stays in the reservoir, and clips the nodes at the
+98 % quantile. With `patex.enable` it uses `max_workingGas_M_m3` (usable volume) without
+clipping: BE 720 instead of 48 Mm³ (Loenhout, ~8 TWh), NL 9 121 instead of 40 227 Mm³.
+Why: a data bug, found in PyPSA-Wal (`TIMES2PYPSA/pypsa-wal`, commit `46c2f485`).
+
 ## Countries without PatEx data
 
 `patex.fallback_countries` (AL, BA, CH, GB, ME, MK, NO, RS, XK on dataset 47.x.4) keep

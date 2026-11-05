@@ -1589,6 +1589,7 @@ def add_h2_gas_infrastructure(
     gas_input_nodes,
     spatial,
     options,
+    clip_gas_storage=True,
 ):
     """
     Add hydrogen and gas infrastructure to the network.
@@ -1627,6 +1628,9 @@ def add_h2_gas_infrastructure(
         - SMR : bool
         - min_part_load_methanation : float
         - cc_fraction : float
+    clip_gas_storage : bool, default True
+        Clip existing gas storage at the 98 % quantile of the nodes (upstream).
+        False with PatEx: the working-gas capacities are used as they are.
 
     Returns
     -------
@@ -1827,9 +1831,10 @@ def add_h2_gas_infrastructure(
             .fillna(0.0)
             * 1e3
         )  # MWh_LHV
-        e_nom.clip(
-            upper=e_nom.quantile(0.98), inplace=True
-        )  # limit extremely large storage
+        if clip_gas_storage:
+            e_nom.clip(
+                upper=e_nom.quantile(0.98), inplace=True
+            )  # limit extremely large storage
         n.stores.loc[gas_i, "e_nom_min"] = e_nom
 
         # add candidates for new gas pipelines to achieve full connectivity
@@ -6597,6 +6602,8 @@ def main(
         gas_input_nodes=gas_input_nodes,
         spatial=spatial,
         options=options,
+        # PatEx soft-link: working-gas capacities are real, no clipping
+        clip_gas_storage=not patex["enable"],
     )
 
     # Hydrogen already implemented in add_h2_gas_infrastructure

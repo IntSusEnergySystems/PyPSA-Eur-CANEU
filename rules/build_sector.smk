@@ -86,6 +86,8 @@ rule build_gas_input_locations:
         storage=rules.retrieve_gas_infrastructure_data.output["storage"],
         onshore_regions=resources("onshore_regions.geojson"),
         offshore_regions=resources("offshore_regions.geojson"),
+    params:
+        patex_enable=config_provider("patex", "enable"),
     output:
         gas_input_nodes=resources("gas_input_locations.geojson"),
         gas_input_nodes_simplified=resources("gas_input_locations_simplified.csv"),

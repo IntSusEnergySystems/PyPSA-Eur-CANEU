@@ -107,7 +107,7 @@ def build_gem_prod_data(fn):
     return gdf
 
 
-def build_gas_input_locations(gem_fn, entry_fn, sto_fn, countries):
+def build_gas_input_locations(gem_fn, entry_fn, sto_fn, countries, working_gas=False):
     # LNG terminals
     lng = build_gem_lng_data(gem_fn)
 
@@ -140,7 +140,10 @@ def build_gas_input_locations(gem_fn, entry_fn, sto_fn, countries):
     lng["capacity"] = lng["CapacityInMtpa"] * mtpa_to_mw
     entry["capacity"] = entry["max_cap_from_to_M_m3_per_d"] * mcm_per_day_to_mw
     prod["capacity"] = prod["mcm_per_year"] * mcm_per_year_to_mw
-    sto["capacity"] = sto["max_cushionGas_M_m3"] * mcm_to_gwh
+    # PatEx soft-link: storage capacity is the working gas; the cushion gas stays in
+    # the reservoir (upstream: BE 15x too small, NL 4x too large)
+    gas_volume = "max_workingGas_M_m3" if working_gas else "max_cushionGas_M_m3"
+    sto["capacity"] = sto[gas_volume] * mcm_to_gwh
 
     lng["type"] = "lng"
     entry["type"] = "pipeline"
@@ -181,6 +184,7 @@ if __name__ == "__main__":
         snakemake.input.entry,
         snakemake.input.storage,
         countries,
+        working_gas=snakemake.params.get("patex_enable", False),
     )
 
     gas_input_nodes = gpd.sjoin(gas_input_locations, regions, how="left")

@@ -4742,6 +4742,47 @@ def add_industry(
             p_set=feedstock.values,
         )
 
+    if "oil for industry" in industrial_demand:
+        # PatEx soft-link: liquids burnt in industry (e.g. steam cracker fuel), with
+        # combustion CO2; `naphtha` keeps only the feedstock that makes plastics
+        p_set = (
+            industrial_demand.loc[nodes, "oil for industry"].rename(
+                lambda x: x + " oil for industry"
+            )
+            / nhours
+        )
+        buses = p_set.index
+        if not options["regional_oil_demand"]:
+            p_set = p_set.sum()
+            buses = ["EU oil for industry"]
+
+        n.add(
+            "Bus",
+            buses,
+            location=spatial.oil.demand_locations,
+            carrier="oil for industry",
+            unit="MWh_LHV",
+        )
+
+        n.add(
+            "Load",
+            buses,
+            bus=buses,
+            carrier="oil for industry",
+            p_set=p_set,
+        )
+
+        n.add(
+            "Link",
+            buses,
+            bus0=spatial.oil.nodes,
+            bus1=buses,
+            bus2="co2 atmosphere",
+            carrier="oil for industry",
+            p_nom_extendable=True,
+            efficiency2=costs.at["oil", "CO2 intensity"],
+        )
+
     n.add(
         "Load",
         nodes,

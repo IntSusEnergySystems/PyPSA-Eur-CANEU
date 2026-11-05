@@ -44,7 +44,8 @@ sector:
 plotting:
   tech_colors:
     gas feedstock for industry: "#a0522d"  # PatEx soft-link: feedstock gas load
-    land transport gas: "#a35d2c"  # PatEx soft-link: gas road vehicles
+    land transport gas: "#a35d2c"
+    oil for industry: "#7d6b4f"  # PatEx soft-link: oil burnt in industry (T24)
     rail electricity: "#7ab33a"
     aviation electricity: "#5fa3c7"
     shipping electricity: "#4f7fa8"

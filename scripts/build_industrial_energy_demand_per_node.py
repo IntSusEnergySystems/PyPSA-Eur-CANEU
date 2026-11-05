@@ -69,8 +69,15 @@ if __name__ == "__main__":
 
         pop_layout = pd.read_csv(snakemake.input.clustered_pop_layout, index_col=0)
         patex_industry = pd.read_csv(snakemake.input.patex_industry, index_col=0)
+        if "oil for industry" not in patex_industry:
+            raise ValueError(
+                f"{snakemake.input.patex_industry}: no 'oil for industry' column "
+                "(bundle older than T24): re-export it"
+            )
         # feedstock gas (PatEx only) is spread over the nodes like the gas use
         nodal_df["methane feedstock"] = nodal_df["methane"]
+        # burnt liquids (PatEx only) are spread like the naphtha (chemical sites)
+        nodal_df["oil for industry"] = nodal_df["naphtha"]
         # hydrogen is spread like its gross uses: PatEx has no chlor-alkali
         # by-product, and the net value (uses - by-product) can be negative at a
         # node or for a whole country, which would flip the signs of the split
@@ -85,6 +92,10 @@ if __name__ == "__main__":
             pop_layout.ct,
             pop_layout.fraction,
         )
+        # the PatEx-only columns are copies above: 0 for countries without PatEx
+        # data, whose gas and naphtha already hold these uses
+        other_nodes = nodal_df.index.difference(patex_nodes)
+        nodal_df.loc[other_nodes, ["methane feedstock", "oil for industry"]] = 0.0
 
     nodal_df.index.name = "TWh/a (MtCO2/a)"
 

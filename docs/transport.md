@@ -54,6 +54,21 @@ optimised).
 - the sum is served by PyPSA-Eur's `shipping_{oil,methanol,hydrogen}_share`, each
   converted with its efficiency.
 
+## Why
+
+- **Loads per fuel, not distance.** PyPSA-Eur builds `transport_demand.csv` once, without
+  horizon, from today's energy totals, as a driven distance (final energy / ICE-based fleet
+  efficiency); overriding the energy totals alone would leave road at today's level.
+  Feeding PatEx's electrified energy through that efficiency counts the EV gain twice (less
+  distance, then less EV electricity), and an energy ratio `electricity road / total road`
+  as EV share has the same bias (an EV needs ~3.3× less energy per km: 53.2 vs 16.1
+  (100 km)/MWh). So each load is set to PatEx's energy per fuel; PatEx's vehicle-km are
+  not needed.
+- **EV fleet from PatEx.** PyPSA-Eur's EV share × today's cars gives a quite different
+  fleet from PatEx's BEV + PHEV cars and vans.
+- **Shipping.** `shipping_demand.csv` is also built from today's totals; only its port
+  split is kept.
+
 ## Checks and known gaps
 
 - Ledger: land transport EV / fuel cell / oil and aviation per country = 1; EV fleet = 1.

@@ -53,6 +53,28 @@ plastics for electricity and heat, **with** their CO2. Not compatible with
 `sector.municipal_solid_waste` (the biogenic credit of waste would become a net removal:
 error). Talking point with Climact / CAN (T23).
 
+## Why
+
+- **Process emissions from PatEx.** PyPSA-Eur derives them from its own industrial
+  production (today's volumes), so PatEx's activity changes per material would not reach
+  it. They are CO2e with a small non-CO2 share (CH4 of olefins mostly), kept as is.
+- **Feedstock gas apart.** PatEx counts the CO2 of ammonia and olefin feedstock gas in its
+  *process* emissions; PyPSA-Eur burns all industry `methane` with combustion CO2. In one
+  column the CO2 would be counted twice.
+- **Solid waste.** PyPSA-Eur's own data book JRC-IDEES "biomass and waste" as biomass. Not
+  done here: it would make the waste carbon-neutral.
+- **Chlor-alkali hydrogen** (T22, Q12). PyPSA-Eur's industry ratios give chlorine
+  −0.937 MWh H2/t (by-product; stoichiometry 28.4 kg H2/t Cl2 = 0.947 MWh/t LHV), ~1.0
+  TWh/a in NL and ~0.5 TWh/a in BE with its site data, constant over horizons. PatEx has
+  no chlorine material and no by-product route. Order of magnitude (desk research, to
+  confirm): EU chlorine output ~8 Mt/a → ~7.6 TWh H2/a, about 3 % of EU hydrogen demand
+  (~264 TWh/a in 2023); NL capacity ~0.85 Mt Cl2 → ≤ 0.8 TWh/a, BE ~1.07 Mt → ≤ 1.0 TWh/a
+  (site table, not verified). About 85–90 % is used today (burned for heat or used by
+  neighbours), 10–15 % vented. Marginal at country scale, locally relevant; energy
+  statistics do not show it as a carrier (CBS). Sources: eurochlor.org/production,
+  Euro Chlor FOCS-13 Hydrogen (2024), Clean Hydrogen Observatory market landscape
+  (Nov 2024), CBS hydrogen balance note (2020).
+
 ## Checks and known gaps
 
 - Ledger: every carrier, feedstock gas, process emissions per country = 1.

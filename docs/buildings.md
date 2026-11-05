@@ -36,6 +36,23 @@ Heat buses: residential and services heat goes to PyPSA-Eur's `rural heat`,
 `urban decentral heat` and `urban central heat` buses; the network chooses the heating
 technologies (heat pumps, boilers, district heating supply).
 
+## Why
+
+- **Space vs water heating.** The totals agree, the split does not: PatEx space + water
+  matches JRC-IDEES (its calibration source); PyPSA-Eur is 2 % higher because it
+  overwrites JRC-IDEES with Eurostat `nrg_d_hhq` (`update_residential_from_eurostat`), which
+  puts 11.7 TWh in BE water heating against 8.9 in JRC-IDEES. Little impact: both go to
+  the same heat buses, only the profile differs (flat for water, weather-dependent for
+  space). Source of PatEx's split: open question Q10.
+- **District heating losses.** PatEx `bld_district-energy-demand` is delivered heat
+  (`dh = E × district-heating-share`); PatEx adds network losses in its supply module
+  (`heat_demand = heat + heat × network-losses[%]`, per country, reported in
+  `elc_energy-sankey-detailed`, heat → distribution-losses, buildings and industry
+  together). PyPSA-Eur multiplies the building urban central heat demand by
+  `1 + district_heating_loss` and puts industry low-temperature heat on the same bus
+  without loss. Same base, no double count; the rates differ and PyPSA-Eur's loss misses
+  the industry heat (T19).
+
 ## Checks and known gaps
 
 - Ledger: `building heat (useful)` per country ≈ 1; above 1 by the district heating losses.

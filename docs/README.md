@@ -3,8 +3,9 @@
 How the outputs of PatEx (Climact's Pathways Explorer) enter this fork, sector by sector.
 The link code outside this repository is the package `patex_pypsa`
 ([IntSusEnergySystems/PatEx-PyPSA](https://github.com/IntSusEnergySystems/PatEx-PyPSA));
-the reasons behind each choice are in its `MODEL_CHANGES.md` and `SOFTLINKING_PLAN.md`,
-open items in its `TODO.md` (`Tn`).
+the reasons behind each choice are in the "Why" section of each sector file and in its
+`MODEL_CHANGES.md`, open questions in its `OPEN_QUESTIONS.md` (`Qn`), work items in its
+`TODO.md` (`Tn`).
 
 | Sector | File |
 |---|---|

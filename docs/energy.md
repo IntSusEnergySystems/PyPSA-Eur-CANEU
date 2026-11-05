@@ -24,6 +24,12 @@ into the cost table, so every PyPSA-Eur link burning these carriers uses them. B
 synthetic fuels are carbon-neutral in both models. Lignite (power only) keeps PyPSA-Eur's
 value: PatEx has no lignite carrier.
 
+Why: PyPSA-Eur keeps its CO2 accounting and decides CCS, but with PatEx's numbers wherever
+they exist (user's decision, 2026-11-03). PyPSA-Eur's own values (gas 0.198, oil 0.2571,
+coal 0.3361 tCO2/MWh) are a few % below PatEx's. The factors are computed from PatEx at
+export, never written in the config. Lignite: PatEx has one `elec-plant-with-solid-coal`;
+PyPSA-Eur's 0.407 tCO2/MWh is kept, PatEx has no lignite value to align with.
+
 ## Process emissions and plastics
 
 See [industry.md](industry.md): PatEx process emissions (before capture), feedstock gas

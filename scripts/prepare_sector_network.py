@@ -5820,56 +5820,6 @@ def add_agriculture(
         )
 
 
-def scale_patex_industry_co2(
-    n: pypsa.Network,
-    intensity: pd.DataFrame,
-    costs: pd.DataFrame,
-    pop_layout: pd.DataFrame,
-    industrial_demand: pd.DataFrame,
-) -> None:
-    """
-    PatEx soft-link: industry combustion CO2 with PatEx's CRF-calibrated factors.
-
-    PatEx scales its industry combustion CO2 per material to the national inventories
-    (CRF); ``intensity`` (country × gas / oil / coal, tCO2/MWh) carries that calibration
-    per fuel. The CO2 ports (atmosphere and captured) of the industry links are scaled
-    from the EU intensity of the cost table to the country's value. A link serving
-    several countries (EU bus) gets the demand-weighted mean; countries without PatEx
-    data keep the cost-table intensity.
-    """
-    fuels = {
-        "gas": (["gas for industry", "gas for industry CC"], "methane"),
-        "coal": (["coal for industry"], "coal"),
-        "oil": (["oil for industry"], "oil for industry"),
-    }
-    co2_buses = n.buses.index[n.buses.carrier.isin(["co2", "co2 stored"])]
-    country = pop_layout.ct
-    for fuel, (carriers, column) in fuels.items():
-        ratio = (
-            intensity[fuel].reindex(country.values).set_axis(country.index)
-            / costs.at[fuel, "CO2 intensity"]
-        ).fillna(1.0)
-        links = n.links.index[n.links.carrier.isin(carriers)]
-        for link in links:
-            location = n.buses.at[n.links.at[link, "bus1"], "location"]
-            if location in ratio.index:
-                factor = ratio[location]
-            else:
-                weight = industrial_demand[column].reindex(ratio.index).fillna(0.0)
-                factor = (ratio * weight).sum() / weight.sum() if weight.sum() > 0 else 1.0
-            for port in range(2, 6):
-                bus = n.links.at[link, f"bus{port}"] if f"bus{port}" in n.links else ""
-                if bus in co2_buses:
-                    n.links.at[link, f"efficiency{port}"] *= factor
-        logger.info(
-            f"PatEx industry {fuel} CO2 [tCO2/MWh]: "
-            + ", ".join(
-                f"{c} {v:.4f}"
-                for c, v in intensity[fuel].reindex(country.unique()).dropna().items()
-            )
-        )
-
-
 def decentral(n):
     """
     Removes the electricity transmission system.
@@ -6756,14 +6706,6 @@ def main(
             investment_year=current_horizon,
             hvc_to_air_co2=not patex["enable"] or patex["plastics_eol_co2"],
         )
-        if patex["enable"] and patex["co2_intensity"]:
-            scale_patex_industry_co2(
-                n,
-                pd.read_csv(inputs.patex_industry_co2_intensity, index_col=0),
-                costs,
-                pop_layout,
-                pd.read_csv(inputs.industrial_demand, index_col=0),
-            )
 
     if options["shipping"]:
         add_shipping(

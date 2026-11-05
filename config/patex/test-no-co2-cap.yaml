@@ -10,6 +10,11 @@ run:
 co2_budget:
   upper: null
 
+clustering:
+  temporal:
+    # daily resolution: a fast chain test (solve of minutes), not for results
+    averaging: 24h
+
 plotting:
   # without a cap nothing is captured: the co2_stored balance is empty and PyPSA's
   # explore() fails on it

@@ -19,9 +19,8 @@ Heating, industry, EVs, agriculture stay explicit components.
 the fuels it supplies, with PatEx's CO2 content of each fuel** (user's rule, 2026-11-05).
 
 - PatEx → PyPSA-Eur: process emissions (before capture) on the `process emissions` buses
-  ([industry.md](industry.md)); CO2 factors of gas, oil, coal; industry factors with
-  PatEx's inventory calibration; refinery CO2 per MWh of oil (below). All are emissions
-  per unit, computed from PatEx at export, never written in the config.
+  ([industry.md](industry.md)); CO2 factors of gas, oil, coal and refinery CO2 per MWh
+  of oil (below), computed from PatEx at export, never written in the config.
 - PyPSA-Eur: combustion CO2 of every link burning a fossil fuel, capture, fuel origin
   (fossil / bio / synthetic), DAC, sequestration. PatEx's combustion emissions are not
   passed.
@@ -47,34 +46,27 @@ coal 0.3361 tCO2/MWh) are a few % below PatEx's. The factors are computed from P
 export, never written in the config. Lignite: PatEx has one `elec-plant-with-solid-coal`;
 PyPSA-Eur's 0.407 tCO2/MWh is kept, PatEx has no lignite value to align with.
 
-## Industry: PatEx's inventory (CRF) calibration (T27)
+## Inventory (CRF) calibration: not transferred (T27, decided 2026-11-05)
 
-PatEx computes industry combustion CO2 as fuel × factor, then scales it per country and
-material to the national inventories (CRF tables reported to the UNFCCC): rate = official
-/ computed in the inventory years, the last rate kept for the future
-(`patex.core.calibration`). PyPSA-Eur keeps computing the CO2 from the fuels it supplies,
-with factors that carry this calibration:
+PatEx scales the combustion CO2 of every sector (industry per material, buildings per
+building type, transport per domestic / bunkers, agriculture on 1A4c) to the national
+inventories (CRF), keeping the last inventory rate for the future. PyPSA-Eur keeps the
+**physical** factors (fuel × PatEx's factor) in every sector.
 
-- export (`patex_pypsa.emissions.industry_co2_intensity`): per country, horizon and
-  material `rate = PatEx combustion CO2 / Σ fuel × factor` (fossil fuels and solid waste;
-  bio and synthetic fuels have no factor in PatEx); per fuel `factor × Σ_m E_m rate_m /
-  Σ_m E_m` → `patex_industry_co2_intensity_{h}.csv` (country × `gas`, `oil`, `coal`).
-  Burning PatEx's fossil industry fuels with them gives PatEx's industry combustion CO2
-  exactly. Solid waste CO2 (added to process emissions) uses the calibrated waste factor;
-- `prepare_sector_network.scale_patex_industry_co2`: the CO2 ports (atmosphere and
-  captured) of `gas for industry`, `gas for industry CC`, `coal for industry`,
-  `oil for industry` are scaled from the cost-table intensity to the country's value;
-  links on an EU bus get the demand-weighted mean over the modelled countries;
-  countries without PatEx data keep the cost-table intensity.
-
-Why: coherence with PatEx's industry emissions (user's decision, 2026-11-05). The rates
-differ a lot between countries and materials (inventory boundaries, e.g. blast furnace
-and coke-oven gases booked under steel combustion), so the calibrated factors can be far
-from the physical ones (below or above). Known side effect: biogas and bio-oil get their
-credit at the cost-table intensity when they enter the gas / oil bus, but industry burns
-them at the calibrated one, so a bio MWh burnt in industry nets slightly positive or
-negative. PatEx's combustion figures are CO2e: the calibrated factors carry their small
-non-CO2 share, like the process emissions.
+Why: the 1990 baseline of the relative cap is the inventory itself (EEA / UNFCCC data,
+`build_co2_totals.py`), so the model's total must be counted like the inventory. But many
+of PatEx's rates move an emission between sectors (inventory booking vs energy-statistics
+transformation, e.g. autoproducer and greenhouse CHPs); they cancel in PatEx's total
+because PatEx calibrates every sector, power included. PyPSA-Eur counts the carbon where it
+burns it, and its other sectors are not calibrated: transferring one sector's rate would
+remove real CO2 (rate < 1) or count it twice (rate > 1). Calibrated factors also break
+capture (90 % of a non-physical amount) and the biogenic balance (credit at one factor,
+burnt at another), and were applied to the bio / synthetic share PatEx already has in
+industry (BE-LU-NL test 2030: industry combustion above PatEx). Consistency with the
+baseline is handled as a total instead (T11): carbon truly missing from the model's
+physical count (coke ovens and blast-furnace gases of steel, fugitive emissions,
+refining of exported products) to be added as fixed amounts or removed from the baseline,
+each with its source.
 
 ## Refineries (T26)
 

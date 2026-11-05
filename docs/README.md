@@ -24,6 +24,9 @@ CCS, trade, costs. Each country keeps PyPSA-Eur's split over its nodes and its h
 profiles; only the annual total is PatEx's. No annual demand comes from PyPSA-Eur,
 except for the countries without PatEx data (`patex.fallback_countries`).
 
+CO2: process emissions come from PatEx; all other emissions are computed by PyPSA-Eur from
+the fuels it supplies, with PatEx's CO2 factors ([energy.md](energy.md)).
+
 ## Pipeline
 
 ```

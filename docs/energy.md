@@ -13,6 +13,21 @@ heating (`build_heat_demand`) and today's industry electricity. At the end of
 scaled (hourly shape kept) so that their annual sum equals `electricity base load`.
 Heating, industry, EVs, agriculture stay explicit components.
 
+## CO2 accounting rule
+
+**Process emissions come from PatEx; every other emission is computed by PyPSA-Eur from
+the fuels it supplies, with PatEx's CO2 content of each fuel** (user's rule, 2026-11-05).
+
+- PatEx → PyPSA-Eur: process emissions (before capture) on the `process emissions` buses
+  ([industry.md](industry.md)); CO2 factors of gas, oil, coal (below).
+- PyPSA-Eur: combustion CO2 of every link burning a fossil fuel, capture, fuel origin
+  (fossil / bio / synthetic), DAC, sequestration. PatEx's combustion emissions are not
+  passed.
+- Where PyPSA-Eur cannot burn the fuel (no carrier), its CO2 is computed at export with
+  PatEx's factor and added to process emissions: industry solid waste.
+- PatEx feedstock (gas for ammonia and olefins) is not burnt: no combustion CO2; the CO2 it
+  releases is in PatEx's process emissions.
+
 ## CO2 intensity of fuels (`patex.co2_intensity`)
 
 PyPSA-Eur uses one CO2 intensity per carrier; PatEx has one factor per sector and fuel

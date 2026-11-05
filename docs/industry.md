@@ -53,6 +53,11 @@ plastics for electricity and heat, **with** their CO2. Not compatible with
 `sector.municipal_solid_waste` (the biogenic credit of waste would become a net removal:
 error). Talking point with Climact / CAN (T23).
 
+Consequence (user's decision, 2026-11-05: kept as is): burning plastics is the model's
+choice. `HVC to air` is free and emits nothing, so waste CHPs run only where their power
+and heat pay for their cost and CO2; under a cap they may stay unused (BE-LU-NL test
+without cap: unused). PatEx's waste-incineration emissions are then not reproduced.
+
 ## Why
 
 - **Process emissions from PatEx.** PyPSA-Eur derives them from its own industrial

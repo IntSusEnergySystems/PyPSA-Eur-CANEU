@@ -9,3 +9,9 @@ run:
 
 co2_budget:
   upper: null
+
+plotting:
+  # without a cap nothing is captured: the co2_stored balance is empty and PyPSA's
+  # explore() fails on it
+  balance_map_interactive:
+    bus_carriers: [AC, gas, H2, oil, urban_central_heat]

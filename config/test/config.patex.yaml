@@ -15,7 +15,7 @@ patex:
 
 # Nuclear (T34): one link per reactor from data/nuclear_fleet.csv (official sources),
 # no duplicate generators; one 10-year extension (model's choice, at fixed O&M cost)
-# unless the official end date is already an extension; gone within 5 years of its end;
+# unless the official end date is already an extension; gone within 4 years of its end;
 # 50 years where no official end date exists (user, 2026-11-07); must-run 0.10 below
 # the country availability.
 nuclear_fleet:

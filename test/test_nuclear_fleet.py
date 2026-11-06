@@ -28,14 +28,15 @@ def fleet():
     "horizon, usable, extension",
     [
         # old: 1985 + 50 = 2035, extended 2045; official 2040 → 2050;
-        # extended: 2035 final; new: 2050 → 2060; late: from 2032
-        (2030, ["old", "official", "new"], ["old"]),
-        (2040, ["official", "new", "late"], ["official"]),
+        # extended: 2035 final; new: 2050 → 2060; late: from 2032.
+        # Used if the end after extension is more than 4 years after the horizon.
+        (2030, ["old", "official", "extended", "new"], []),
+        (2040, ["old", "official", "new", "late"], ["old", "official"]),
         (2050, ["new", "late"], ["new"]),
     ],
 )
 def test_fleet_at_horizon(horizon, usable, extension):
-    out = fleet_at_horizon(fleet(), horizon, 50, 10, 5)
+    out = fleet_at_horizon(fleet(), horizon, 50, 10, 4)
     assert sorted(out.index) == sorted(usable)
     assert sorted(out.index[out.extension]) == sorted(extension)
 
@@ -71,7 +72,7 @@ def test_apply_replaces_generators_and_drops_declined_extension(tmp_path):
         fleet_file=fn,
         default_lifetime=50,
         extension_years=10,
-        min_remaining_years=5,
+        min_remaining_years=4,
         optional_extension=True,
         must_run_margin=0.1,
     )
@@ -79,8 +80,10 @@ def test_apply_replaces_generators_and_drops_declined_extension(tmp_path):
     apply_nuclear_fleet(n, None, costs(), 2030, options, None)
     assert not (n.generators.carrier == "nuclear").any()
     links = n.links[n.links.carrier == "nuclear"]
-    assert sorted(links.index) == ["BE0 0 nuclear new", "BE0 0 nuclear official", "BE0 0 nuclear old"]
-    assert links.at["BE0 0 nuclear old", "p_nom_extendable"]
+    assert sorted(links.index) == [
+        "BE0 0 nuclear extended", "BE0 0 nuclear new", "BE0 0 nuclear official", "BE0 0 nuclear old"
+    ]
+    assert not links.p_nom_extendable.any()  # nobody in its extension in 2030
     assert links.at["BE0 0 nuclear new", "p_nom"] == pytest.approx(1000 / 0.33)
     assert links.p_min_pu.eq(0.9).all()
 

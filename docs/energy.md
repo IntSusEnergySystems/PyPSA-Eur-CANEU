@@ -185,7 +185,7 @@ uranium supply at the cost-data fuel price. Rules per reactor and horizon `h`:
   already an extension (`end_date_includes_extension`, e.g. Doel 4 / Tihange 3 2035,
   Borssele 2033, Krško 2043, Paks 50 years, the British AGRs, Almaraz 2030);
 - not used at `h` if its retirement year after extension is within `min_remaining_years`
-  (5) after `h`; reactors under construction from their expected grid connection;
+  (4) after `h`; reactors under construction from their expected grid connection;
 - in its extension, the model decides whether to keep it (extendable up to its capacity,
   at the cost-data fixed O&M; no specific long-term-operation investment in the data),
   never more than it kept at the previous horizon;
@@ -196,7 +196,7 @@ No new build (nuclear is not extendable in this configuration; PAC 2.0: to confi
 CAN, Q16).
 
 Why: user's rules (2026-11-07): every country can use its installed nuclear, one 10-year
-extension, not used within 5 years of its end; default lifetime 50 years where no official
+extension, not used within 4 years of its end (5 until 2026-11-07); default lifetime 50 years where no official
 end date or lifetime exists (France's regulator allows operation 10 years after each 4th
 periodic review, i.e. to about 50 years for the 900 MW fleet; no country sets a legal
 lifetime); dates that are already an extension get no second one.

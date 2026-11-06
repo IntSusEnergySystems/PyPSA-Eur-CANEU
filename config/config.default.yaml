@@ -1615,7 +1615,7 @@ nuclear_fleet:
   fleet_file: data/nuclear_fleet.csv
   default_lifetime:
   extension_years: 10
-  min_remaining_years: 5
+  min_remaining_years: 4
   optional_extension: true
   must_run_margin:
 

@@ -35,7 +35,7 @@ class NuclearFleetConfig(BaseModel):
         10, description="One lifetime extension [a] after the retirement year."
     )
     min_remaining_years: int = Field(
-        5,
+        4,
         description="A reactor is not used at a horizon if its retirement year (after "
         "extension) is within this many years after the horizon.",
     )

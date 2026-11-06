@@ -1602,6 +1602,13 @@ overpass_api:
     email: "contact@pypsa.org"
     website: "https://github.com/PyPSA/pypsa-eur"
 
+# docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#import_limits_cf
+import_limits:
+  enable: false
+  limits: {}
+  domestic: {}
+  bio_imports: []
+
 # docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#patex_cf
 patex:
   enable: false
@@ -1621,4 +1628,5 @@ patex:
   co2_intensity: true
   district_heating: true
   base_load: true
+  import_limits: true
   plastics_eol_co2: false

@@ -25,7 +25,19 @@ patex:
 industry:
   waste_to_energy: true   # waste CHPs burn non-recycled plastics (CO2 counted)
 
+# Gross imports per fuel capped at PatEx's, summed over the modelled countries
+# (patex.import_limits); biogas and bioliquids imports added for that.
+import_limits:
+  enable: true
+  bio_imports: [biogas, bioliquids]
+
 sector:
+  # Imports (T29): PyPSA-Eur's import options on, so that every fuel PatEx imports
+  # can be imported; caps from PatEx (`import_limits` above). Prices: upstream's.
+  imports:
+    enable: true
+  solid_biomass_import:
+    enable: true
   # PatEx demands already embed renovation and efficiency: do not let
   # PyPSA-Eur reduce them a second time.
   reduce_space_heat_exogenously: false
@@ -57,6 +69,15 @@ plotting:
     H2 for cooking: "#b07aa1"
     urban central heat losses: "#d9826b"  # PatEx district heating losses (T19)
     heat losses: "#d9826b"  # same, as plot_summary names it
+    gas production: "#c46a2f"  # domestic gas, split from the imports (T29)
+    import H2: "#d9a3c8"
+    import NH3: "#87d0e6"
+    import methanol: "#c7a76b"
+    import gas: "#e8a065"
+    import oil: "#a69b8c"
+    import biogas: "#9cc46a"
+    import bioliquids: "#b5b86b"
+    solid biomass import: "#7a9a4a"
   # no methanol map: PatEx has no methanol ships (Q14), so the methanol balance of
   # PatEx countries is empty and PyPSA's explore() fails on it
   balance_map_interactive:

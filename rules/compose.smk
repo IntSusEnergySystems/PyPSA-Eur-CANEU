@@ -178,7 +178,7 @@ def get_compose_inputs(w):
             ),
         )
         if cfg["patex"]["enable"]:
-            for name in ("energy_totals", "parameters", "co2_intensity"):
+            for name in ("energy_totals", "parameters", "co2_intensity", "supply"):
                 sector_inputs[f"patex_{name}"] = resources(f"patex_{name}_{{horizon}}.csv")
         inputs.update(sector_inputs)
 
@@ -280,5 +280,6 @@ rule compose_network:
         co2_budget=config_provider("co2_budget"),
         adjustments=config_provider("adjustments"),
         patex=config_provider("patex"),
+        import_limits=config_provider("import_limits"),
     script:
         scripts("compose_network.py")

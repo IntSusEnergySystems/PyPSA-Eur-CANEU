@@ -1198,6 +1198,39 @@ def add_import_limit_constraint(n: pypsa.Network, sns: pd.DatetimeIndex):
     n.model.add_constraints(lhs, limit_sense, rhs, name="import_limit")
 
 
+def add_supply_limits_per_fuel(n: pypsa.Network, sns: pd.DatetimeIndex) -> None:
+    """
+    Cap gross imports and domestic production per fuel over the whole network
+    (``import_limits``).
+
+    Reads the ``GlobalConstraint`` rows of type ``import_limit`` /
+    ``domestic_limit`` written by ``prepare_sector_network.add_supply_limits``
+    (carrier_attribute = fuel, constant in MWh over the modelled period) and sums
+    the components of that fuel (``IMPORT_FUELS`` / ``DOMESTIC_FUELS``):
+    generator dispatch, link output. Named ``GlobalConstraint-<name>`` so that
+    its dual is written to ``mu``.
+    """
+    from scripts._import_limits_config import DOMESTIC_FUELS, IMPORT_FUELS
+
+    fuels = {"import_limit": IMPORT_FUELS, "domestic_limit": DOMESTIC_FUELS}
+    glcs = n.global_constraints[n.global_constraints.type.isin(list(fuels))]
+    weightings = n.snapshot_weightings.loc[sns, "generators"]
+    for name, glc in glcs.iterrows():
+        component, carriers = fuels[glc.type][glc.carrier_attribute]
+        static = n.static(component)
+        index = static.index[static.carrier.isin(carriers)]
+        if index.empty:
+            logger.info(f"{name}: no import component, constraint skipped")
+            continue
+        p = n.model[f"{component}-p"].loc[sns, index]
+        if component == "Link":
+            p = p * n.links.loc[index, "efficiency"]
+        lhs = (p * weightings).sum()
+        n.model.add_constraints(
+            lhs, glc.sense, glc.constant, name=f"GlobalConstraint-{name}"
+        )
+
+
 def add_co2_atmosphere_constraint(n, snapshots):
     glcs = n.global_constraints[n.global_constraints.type == "co2_atmosphere"]
 
@@ -1288,6 +1321,9 @@ def extra_functionality(
 
     if config["sector"]["imports"]["enable"]:
         add_import_limit_constraint(n, snapshots)
+
+    if n.global_constraints.type.isin(["import_limit", "domestic_limit"]).any():
+        add_supply_limits_per_fuel(n, snapshots)
 
     if n.params.custom_extra_functionality:
         source_path = n.params.custom_extra_functionality

@@ -2635,6 +2635,57 @@
       ],
       "type": "string"
     },
+    "ImportLimitsConfig": {
+      "description": "Caps on gross imports per fuel, summed over all modelled countries.",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Add one global constraint per capped fuel (type `import_limit`).",
+          "type": "boolean"
+        },
+        "limits": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "description": "Fuel \u2192 cap [TWh/a] for the whole optimised region, a number or {planning horizon: number}. Fuels: gas, oil, coal, H2, NH3, synthetic gas, synthetic oil, methanol, solid biomass, biogas, bioliquids.",
+          "type": "object"
+        },
+        "domestic": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "description": "Fuel \u2192 cap on domestic production [TWh/a], whole region (fuels: gas, oil, coal). Adds a domestic generator for oil and coal (PyPSA-Eur has none: without it all their supply counts as import); lignite counts as coal.",
+          "type": "object"
+        },
+        "bio_imports": {
+          "description": "Add carbon-neutral imports of `biogas` (into the gas buses) and/or `bioliquids` (into the oil bus), priced like PyPSA-Eur's domestic biogas and bioliquids (technology-data `biogas` and `biodiesel crops` fuel costs).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      }
+    },
     "IndustryConfig": {
       "description": "Configuration for `industry` settings.",
       "properties": {
@@ -3216,6 +3267,11 @@
         "base_load": {
           "default": true,
           "description": "Rescale the residual electricity load per country to the PatEx value.",
+          "type": "boolean"
+        },
+        "import_limits": {
+          "default": true,
+          "description": "With `import_limits.enable`: caps on gross imports per fuel = PatEx imports summed over the modelled countries (replace `import_limits.limits`).",
           "type": "boolean"
         },
         "plastics_eol_co2": {
@@ -16506,6 +16562,57 @@
         }
       }
     },
+    "import_limits": {
+      "description": "Caps on gross imports per fuel, summed over all modelled countries.",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Add one global constraint per capped fuel (type `import_limit`).",
+          "type": "boolean"
+        },
+        "limits": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "description": "Fuel \u2192 cap [TWh/a] for the whole optimised region, a number or {planning horizon: number}. Fuels: gas, oil, coal, H2, NH3, synthetic gas, synthetic oil, methanol, solid biomass, biogas, bioliquids.",
+          "type": "object"
+        },
+        "domestic": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "description": "Fuel \u2192 cap on domestic production [TWh/a], whole region (fuels: gas, oil, coal). Adds a domestic generator for oil and coal (PyPSA-Eur has none: without it all their supply counts as import); lignite counts as coal.",
+          "type": "object"
+        },
+        "bio_imports": {
+          "description": "Add carbon-neutral imports of `biogas` (into the gas buses) and/or `bioliquids` (into the oil bus), priced like PyPSA-Eur's domestic biogas and bioliquids (technology-data `biogas` and `biodiesel crops` fuel costs).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      }
+    },
     "patex": {
       "description": "PatEx \u2192 PyPSA-Eur demand soft-link.",
       "properties": {
@@ -16556,6 +16663,11 @@
         "base_load": {
           "default": true,
           "description": "Rescale the residual electricity load per country to the PatEx value.",
+          "type": "boolean"
+        },
+        "import_limits": {
+          "default": true,
+          "description": "With `import_limits.enable`: caps on gross imports per fuel = PatEx imports summed over the modelled countries (replace `import_limits.limits`).",
           "type": "boolean"
         },
         "plastics_eol_co2": {

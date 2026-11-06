@@ -1590,6 +1590,7 @@ def add_h2_gas_infrastructure(
     spatial,
     options,
     clip_gas_storage=True,
+    split_gas_production=False,
 ):
     """
     Add hydrogen and gas infrastructure to the network.
@@ -1818,9 +1819,27 @@ def add_h2_gas_infrastructure(
         n.generators.drop(remove_i, inplace=True)
 
         input_types = ["lng", "pipeline", "production"]
+        if split_gas_production:
+            # import limits: the `gas` generators are the entries (LNG,
+            # pipelines); domestic production gets its own generators
+            input_types = ["lng", "pipeline"]
         p_nom = gas_input_nodes[input_types].sum(axis=1).rename(lambda x: x + " gas")
         n.generators.loc[gas_i, "p_nom_extendable"] = False
         n.generators.loc[gas_i, "p_nom"] = p_nom
+
+        if split_gas_production:
+            production = gas_input_nodes["production"].dropna()
+            production = production[production > 0].rename(lambda x: x + " gas")
+            n.add("Carrier", "gas production")
+            n.add(
+                "Generator",
+                production.index,
+                suffix=" production",
+                bus=production.index,
+                carrier="gas production",
+                p_nom=production.values,
+                marginal_cost=costs.at["gas", "fuel"],
+            )
 
         # add existing gas storage capacity
         gas_i = n.stores.carrier == "gas"
@@ -6538,6 +6557,168 @@ def add_import_options(
         )
 
 
+def add_bio_imports(
+    n: pypsa.Network,
+    costs: pd.DataFrame,
+    fuels: list[str],
+    spatial: SimpleNamespace,
+    gas_input_nodes: pd.DataFrame,
+) -> None:
+    """
+    Carbon-neutral imports of biogas (biomethane) and bioliquids.
+
+    Built like ``import gas`` / ``import oil`` of ``add_import_options``: a link
+    from ``co2 atmosphere`` to the fuel bus, so the carbon burnt later is the
+    carbon taken up abroad. Priced like PyPSA-Eur's domestic fuels (``biogas``
+    and ``biodiesel crops`` fuel costs). Biogas enters at the gas entry nodes
+    (LNG and pipeline) when the gas network is on.
+    """
+    unknown = set(fuels) - {"biogas", "bioliquids"}
+    if unknown:
+        raise ValueError(f"import_limits.bio_imports: unknown {sorted(unknown)}")
+
+    if "biogas" in fuels:
+        co2_intensity = costs.at["gas", "CO2 intensity"]
+        nodes = spatial.gas.nodes
+        if len(nodes) > 1:
+            entries = gas_input_nodes[["lng", "pipeline"]].sum(axis=1)
+            nodes = entries[entries > 0].index + " gas"
+        n.add("Carrier", "import biogas")
+        n.add(
+            "Link",
+            nodes,
+            suffix=" import biogas",
+            carrier="import biogas",
+            bus0="co2 atmosphere",
+            bus1=nodes,
+            efficiency=1 / co2_intensity,
+            marginal_cost=costs.at["biogas", "fuel"] / co2_intensity,
+            p_nom=1e7,
+        )
+
+    if "bioliquids" in fuels:
+        co2_intensity = costs.at["oil", "CO2 intensity"]
+        n.add("Carrier", "import bioliquids")
+        n.add(
+            "Link",
+            spatial.oil.nodes,
+            suffix=" import bioliquids",
+            carrier="import bioliquids",
+            bus0="co2 atmosphere",
+            bus1=spatial.oil.nodes,
+            efficiency=1 / co2_intensity,
+            marginal_cost=costs.at["biodiesel crops", "fuel"] / co2_intensity,
+            p_nom=1e7,
+        )
+
+
+def patex_supply_limits(fn: str, countries: list[str]) -> dict[str, dict[str, float]]:
+    """
+    PatEx soft-link: caps per fuel = PatEx gross imports and domestic production
+    summed over the modelled countries [TWh/a]. Every modelled country must be
+    in the bundle: a fallback country's supply would not be in the caps.
+    """
+    from scripts._import_limits_config import DOMESTIC_FUELS, IMPORT_FUELS
+
+    supply = pd.read_csv(fn, index_col=0)
+    missing = sorted(set(countries) - set(supply.index))
+    if missing:
+        raise ValueError(
+            f"PatEx import limits: no PatEx supply for {missing}; set "
+            "patex.import_limits: false and give import_limits.limits instead"
+        )
+    totals = supply.loc[countries].sum()
+    logger.info(
+        "PatEx supply limits [TWh/a]: "
+        + ", ".join(f"{k} {v:.1f}" for k, v in totals.items())
+    )
+    return {
+        "import": {f: totals[f] for f in IMPORT_FUELS if f in totals},
+        "domestic": {
+            f: totals[f"{f} production"]
+            for f in DOMESTIC_FUELS
+            if f"{f} production" in totals
+        },
+    }
+
+
+def add_domestic_supply(
+    n: pypsa.Network, costs: pd.DataFrame, fuels: list[str], spatial: SimpleNamespace
+) -> None:
+    """
+    Domestic production of the fossil fuels whose domestic supply is capped.
+
+    PyPSA-Eur's oil and coal generators stand for all supply; the domestic
+    part gets its own generator (``oil production`` on the crude bus, ``coal
+    production``), at the same fuel cost, so that the import caps count only
+    imports. Gas: the production generators split off in
+    ``add_h2_gas_infrastructure``, or one EU generator without gas network.
+    """
+    buses = {
+        "gas": spatial.gas.nodes,
+        "oil": [b + " primary" for b in spatial.oil.nodes],
+        "coal": spatial.coal.nodes,
+    }
+    for fuel in fuels:
+        carrier = f"{fuel} production"
+        if carrier in n.generators.carrier.values:
+            continue
+        bus = [b for b in buses[fuel] if b in n.buses.index]
+        if fuel == "oil" and not bus:  # no refining step: crude on the oil bus
+            bus = [b for b in spatial.oil.nodes if b in n.buses.index]
+        if len(bus) != 1:
+            logger.info(f"domestic {fuel}: no single {fuel} bus, nothing added")
+            continue
+        n.add("Carrier", carrier)
+        n.add(
+            "Generator",
+            bus,
+            suffix=" production",
+            bus=bus,
+            carrier=carrier,
+            p_nom_extendable=True,
+            marginal_cost=costs.at[fuel, "fuel"],
+        )
+
+
+def add_supply_limits(
+    n: pypsa.Network, limits: dict[str, dict[str, float]], nyears: float
+) -> None:
+    """
+    Cap the gross imports (``limits["import"]``) and the domestic production
+    (``limits["domestic"]``) of each fuel over the whole network.
+
+    One ``GlobalConstraint`` per fuel, of type ``import_limit`` or
+    ``domestic_limit`` (``constant`` in MWh over the modelled period);
+    ``solve_network`` turns it into a constraint on the components listed in
+    ``IMPORT_FUELS`` / ``DOMESTIC_FUELS``.
+    """
+    from scripts._import_limits_config import DOMESTIC_FUELS, IMPORT_FUELS
+
+    fuels = {"import": IMPORT_FUELS, "domestic": DOMESTIC_FUELS}
+    for kind, values in limits.items():
+        unknown = set(values) - set(fuels[kind])
+        if unknown:
+            raise ValueError(
+                f"import_limits ({kind}): unknown fuels {sorted(unknown)}, "
+                f"use {list(fuels[kind])}"
+            )
+        for fuel, limit in values.items():
+            if limit is None or not np.isfinite(limit):
+                continue
+            component, carriers = fuels[kind][fuel]
+            if not n.static(component).carrier.isin(carriers).any():
+                logger.info(f"{kind} limit {fuel}: no such component in the network")
+            n.add(
+                "GlobalConstraint",
+                f"{kind} limit {fuel}",
+                type=f"{kind}_limit",
+                carrier_attribute=fuel,
+                sense="<=",
+                constant=limit * 1e6 * nyears,
+            )
+
+
 def main(
     n: pypsa.Network,
     inputs,
@@ -6751,6 +6932,7 @@ def main(
         options=options,
         # PatEx soft-link: working-gas capacities are real, no clipping
         clip_gas_storage=not patex["enable"],
+        split_gas_production=params.import_limits["enable"],
     )
 
     # Hydrogen already implemented in add_h2_gas_infrastructure
@@ -6941,6 +7123,25 @@ def main(
 
     if options["imports"]["enable"]:
         add_import_options(n, costs, options, spatial, gas_input_nodes)
+
+    if params.import_limits["enable"]:
+        add_bio_imports(
+            n, costs, params.import_limits["bio_imports"], spatial, gas_input_nodes
+        )
+        limits = {
+            kind: {
+                fuel: get(limit, investment_year)
+                for fuel, limit in params.import_limits[key].items()
+            }
+            for kind, key in (("import", "limits"), ("domestic", "domestic"))
+        }
+        if patex["enable"] and patex["import_limits"]:
+            for kind, values in patex_supply_limits(
+                inputs.patex_supply, params.countries
+            ).items():
+                limits[kind].update(values)
+        add_domestic_supply(n, costs, list(limits["domestic"]), spatial)
+        add_supply_limits(n, limits, nyears)
 
     if options["gas_distribution_grid"]:
         insert_gas_distribution_costs(n, costs, options=options)

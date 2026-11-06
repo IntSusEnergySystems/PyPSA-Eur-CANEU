@@ -49,6 +49,11 @@ class PatexConfig(BaseModel):
         True,
         description="Rescale the residual electricity load per country to the PatEx value.",
     )
+    import_limits: bool = Field(
+        True,
+        description="With `import_limits.enable`: caps on gross imports per fuel = PatEx "
+        "imports summed over the modelled countries (replace `import_limits.limits`).",
+    )
     plastics_eol_co2: bool = Field(
         False,
         description="CO2 of plastics (HVC) that are not burned for energy. False = PatEx / "

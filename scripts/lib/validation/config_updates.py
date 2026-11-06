@@ -9,4 +9,5 @@ Any imports included in this file will be automatically registered as config upd
 See the docs for more details: https://pypsa-eur.readthedocs.io/en/latest/validation_dev/#soft_fork_ext
 """
 
+import scripts._import_limits_config  # noqa: F401
 import scripts._patex_config  # noqa: F401

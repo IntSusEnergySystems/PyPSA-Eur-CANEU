@@ -1,0 +1,30 @@
+# CO2 cap at 50 % of 1990 (relative, CO2 only) in every horizon, daily resolution.
+# Add after a run overlay:
+#   --configfile config/config.patex.yaml config/patex/levers2-be-lu-nl.yaml config/patex/co2-cap-50-24h.yaml
+# A step towards the scenario's CO2 target (TODO T11): PyPSA-Eur's default cap
+# (45 % of 1990 in 2030) did not solve for BE+LU+NL with levers 2.
+
+run:
+  name: patex-levers2-be-lu-nl-co2-cap-50-24h
+
+co2_budget:
+  relative: true
+  upper:
+    2020: 0.5
+    2025: 0.5
+    2030: 0.5
+    2035: 0.5
+    2040: 0.5
+    2045: 0.5
+    2050: 0.5
+
+clustering:
+  temporal:
+    averaging: 24h
+
+solving:
+  # sized for an 8-core nic6 job (24h without cap: 3.6 GB)
+  mem_mb: 12000
+  solver_options:
+    gurobi-default:
+      threads: 8

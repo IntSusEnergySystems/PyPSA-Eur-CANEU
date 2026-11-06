@@ -201,17 +201,18 @@ end date or lifetime exists (France's regulator allows operation 10 years after 
 periodic review, i.e. to about 50 years for the 900 MW fleet; no country sets a legal
 lifetime); dates that are already an extension get no second one.
 
-Data (`data/nuclear_fleet.csv`, built 2026-11-07): reactors in operation and under
-construction in the PyPSA-Eur countries, net MW, grid connection, official end dates with
-their basis and source URLs per row; coordinates from powerplantmatching 0.8.1. Sources:
-World Nuclear Association country profiles and reactor database, national decisions and
-regulators, operators; IAEA PRIS could not be read (JavaScript-only), so capacities and
-dates should be checked against it. Uncertain: British AGR station capacities, Spain's
-Ascó II and Vandellòs II (no official date, default lifetime used), Belgium (2003 law
-repealed in May 2025; legal end date 2035, 2037 or 2045 in a draft, 2035 kept), Romania's
-licences, Hinkley Point C (unit 1 2030 per EDF, unit 2 2031 assumed, 1630 MW net each),
-Paks II unit 5 (2032, 1200 MW rating). Sizewell C (investment decision July 2025) is not
-included: first nuclear concrete not confirmed.
+Data (`data/nuclear_fleet.csv`, `scripts/update_nuclear_fleet_from_pris.py`): units in
+operation, suspended or under construction, with status, net MW and grid connection year
+from IAEA PRIS (JSON interface of the PRIS Analytics app, `pris-stats.iaea.org`, accessed
+2026-11-07; raw snapshot `data/nuclear_pris.csv`, all units and statuses); official end
+dates with their basis and source per row from national decisions, regulators and
+operators (PRIS has none); site coordinates from powerplantmatching 0.8.1. Units under
+construction keep an expected grid connection year from the operator or government
+(Hinkley Point C 1 2030 per EDF, unit 2 2031 assumed; Paks 5 2032; Mochovce 4 2026, grid
+connection reported in October 2026 while PRIS still lists it under construction).
+Sizewell C is not under construction in PRIS. Uncertain end dates: Spain's Ascó II and
+Vandellòs II (no official date, default lifetime used), Belgium (2003 law repealed in May
+2025; legal end date 2035, 2037 or 2045 in a draft, 2035 kept), Romania's licences.
 
 ## Gas storage (data fix)
 

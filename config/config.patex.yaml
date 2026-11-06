@@ -70,6 +70,8 @@ plotting:
     urban central heat losses: "#d9826b"  # PatEx district heating losses (T19)
     heat losses: "#d9826b"  # same, as plot_summary names it
     gas production: "#c46a2f"  # domestic gas, split from the imports (T29)
+    oil production: "#8a7560"
+    coal production: "#5a4a3a"
     import H2: "#d9a3c8"
     import NH3: "#87d0e6"
     import methanol: "#c7a76b"

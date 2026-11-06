@@ -6612,13 +6612,26 @@ def add_bio_imports(
         )
 
 
-def patex_supply_limits(fn: str, countries: list[str]) -> dict[str, dict[str, float]]:
+#: Eurostat primary production (``PPRD``) of the domestic fossil fuels
+EUROSTAT_PRODUCTION = {"gas": "G3000", "oil": "O4000XBIO", "coal": "C0000X0350-0370"}
+
+
+def patex_supply_limits(
+    fn: str, countries: list[str], eurostat_fn: str, year: int
+) -> dict[str, dict[str, float]]:
     """
-    PatEx soft-link: caps per fuel = PatEx gross imports and domestic production
-    summed over the modelled countries [TWh/a]. Every modelled country must be
-    in the bundle: a fallback country's supply would not be in the caps.
+    PatEx soft-link: caps per fuel from PatEx gross imports and domestic
+    production, summed over the modelled countries [TWh/a].
+
+    PatEx's domestic gas, oil and coal "production" is the share of its demand
+    that the import-share lever does not import, not a resource. Domestic supply
+    is therefore capped per country at min(PatEx production, today's production
+    from the Eurostat balances, ``year``); the rest of PatEx's production (the
+    gap, e.g. coal in a country without mines) is added to the import cap and
+    logged. Every modelled country must be in the bundle: a fallback country's
+    supply would not be in the caps.
     """
-    from scripts._import_limits_config import DOMESTIC_FUELS, IMPORT_FUELS
+    from scripts._import_limits_config import IMPORT_FUELS
 
     supply = pd.read_csv(fn, index_col=0)
     missing = sorted(set(countries) - set(supply.index))
@@ -6627,19 +6640,39 @@ def patex_supply_limits(fn: str, countries: list[str]) -> dict[str, dict[str, fl
             f"PatEx import limits: no PatEx supply for {missing}; set "
             "patex.import_limits: false and give import_limits.limits instead"
         )
-    totals = supply.loc[countries].sum()
-    logger.info(
-        "PatEx supply limits [TWh/a]: "
-        + ", ".join(f"{k} {v:.1f}" for k, v in totals.items())
+    supply = supply.loc[countries]
+
+    balances = pd.read_csv(eurostat_fn)
+    real = (
+        balances.query("nrg_bal == 'PPRD' and year == @year")
+        .pivot_table(index="country", columns="siec", values="value", aggfunc="sum")
+        .reindex(index=countries, columns=list(EUROSTAT_PRODUCTION.values()))
+        .fillna(0.0)
     )
-    return {
-        "import": {f: totals[f] for f in IMPORT_FUELS if f in totals},
-        "domestic": {
-            f: totals[f"{f} production"]
-            for f in DOMESTIC_FUELS
-            if f"{f} production" in totals
-        },
-    }
+
+    imports = {f: supply[f].sum() for f in IMPORT_FUELS if f in supply}
+    domestic = {}
+    for fuel, siec in EUROSTAT_PRODUCTION.items():
+        produced = supply.get(f"{fuel} production")
+        if produced is None:
+            continue
+        kept = np.minimum(produced, real[siec])
+        gap = produced - kept
+        domestic[fuel] = kept.sum()
+        imports[fuel] = imports.get(fuel, 0.0) + gap.sum()
+        if (gap > 1e-6).any():
+            logger.warning(
+                f"PatEx {fuel} production above today's ({year}) production, added "
+                "to the import cap [TWh/a]: "
+                + ", ".join(f"{ct} {v:.2f}" for ct, v in gap[gap > 1e-6].items())
+            )
+    logger.info(
+        "Supply limits [TWh/a]: imports "
+        + ", ".join(f"{k} {v:.1f}" for k, v in imports.items())
+        + "; domestic "
+        + ", ".join(f"{k} {v:.1f}" for k, v in domestic.items())
+    )
+    return {"import": imports, "domestic": domestic}
 
 
 def add_domestic_supply(
@@ -6662,6 +6695,10 @@ def add_domestic_supply(
     for fuel in fuels:
         carrier = f"{fuel} production"
         if carrier in n.generators.carrier.values:
+            continue
+        if fuel == "gas" and len(spatial.gas.nodes) > 1:
+            # gas network: domestic gas = the gas fields split off in
+            # add_h2_gas_infrastructure (none in the network here)
             continue
         bus = [b for b in buses[fuel] if b in n.buses.index]
         if fuel == "oil" and not bus:  # no refining step: crude on the oil bus
@@ -7137,10 +7174,15 @@ def main(
         }
         if patex["enable"] and patex["import_limits"]:
             for kind, values in patex_supply_limits(
-                inputs.patex_supply, params.countries
+                inputs.patex_supply,
+                params.countries,
+                inputs.eurostat,
+                int(params.energy_totals_year),
             ).items():
                 limits[kind].update(values)
-        add_domestic_supply(n, costs, list(limits["domestic"]), spatial)
+        add_domestic_supply(
+            n, costs, [f for f, v in limits["domestic"].items() if v > 0], spatial
+        )
         add_supply_limits(n, limits, nyears)
 
     if options["gas_distribution_grid"]:

@@ -114,10 +114,53 @@ from CAN, or PatEx's own emission trajectory per country.
 
 ## Power and supply side: not passed
 
-PatEx's power-sector outputs (`elc_*`: capacities, production, imports, power emissions)
-are not imposed: PyPSA-Eur optimises the supply and its CO2. They are kept to compare
-afterwards (T13). Fuel origin (fossil / bio / synthetic), refineries, heating
-technologies, CCS and storage are PyPSA-Eur's decisions.
+PatEx's power-sector outputs (`elc_*`: capacities, production, power emissions) are not
+imposed: PyPSA-Eur optimises the supply and its CO2. They are kept to compare afterwards
+(T13). Fuel origin (fossil / bio / synthetic), refineries, heating technologies, CCS and
+storage are PyPSA-Eur's decisions, within the import and domestic supply caps below.
+
+## Imports and domestic supply (`import_limits`, T29)
+
+A standalone option of this fork (works without PatEx; default off, so upstream runs are
+unchanged): caps on the **gross imports of each fuel, summed over all modelled
+countries** (a self-sufficiency constraint on the whole region, not per country), and
+optionally on domestic fossil production.
+
+| Fuel | Components counted as import | Domestic components |
+|---|---|---|
+| gas | `gas` generators (LNG and pipeline entries) | `gas production` (gas fields, split off from the entries when the option is on) |
+| oil | `oil primary` | `oil production` (added when domestic oil is capped) |
+| coal | `coal` | `coal production` (added when capped) + `lignite` |
+| H2, NH3 | `import H2`, `import NH3` | |
+| synthetic gas / oil, methanol | `import gas`, `import oil`, `import methanol` | |
+| solid biomass | `solid biomass import` | |
+| biogas, bioliquids | `import biogas`, `import bioliquids` (new, carbon-neutral like `import gas`; priced at technology-data `biogas` / `biodiesel crops` fuel costs, as PyPSA-Eur's domestic ones) | |
+
+Config: `import_limits.limits` / `import_limits.domestic` (TWh/a, a number or per horizon),
+`import_limits.bio_imports`. Each cap is a `GlobalConstraint` of type `import_limit` /
+`domestic_limit` in the composed network (`constant` in MWh over the modelled period);
+`solve_network` sums generator dispatch and link output of the listed carriers, and the
+dual (EUR/MWh) is written to `mu`. Without a gas network, gas production is not separable
+(one EU generator); oil and coal have no domestic generator unless capped, so without a
+domestic cap all their supply counts as import.
+
+With `patex.import_limits` (PatEx bundle `patex_supply_{h}.csv`): import caps = PatEx gross
+imports per fuel (supply Sankey `source = import`; bioenergy `origin = import`), summed
+over the modelled countries; a fuel PatEx does not import (methanol, NH3) gets cap 0. All
+modelled countries must be PatEx countries. `config/config.patex.yaml` switches on
+PyPSA-Eur's import options (`sector.imports`, `sector.solid_biomass_import`) and the bio
+imports, so that every fuel PatEx imports can be imported, up to PatEx's amount.
+
+Why the domestic caps and the gap: PatEx does not model fossil resources. For gas and
+coal it imports `demand × energy-net-import-refineries[%]` (a lever) and books the rest as
+"primary production", whether or not the country has mines or fields (e.g. coal in
+Belgium, which has none since 1992). Imports alone at PatEx's level cannot then serve
+PatEx's own demand. Domestic supply is capped per country at min(PatEx production,
+today's production from the Eurostat balances, `PPRD` of `energy_totals_year`); the part of
+PatEx's production above that (the gap) is added to the import cap and logged by
+`compose_network` (user's decision, 2026-11-07, as long as the PatEx scenarios are not
+checked; stricter later). Lignite counts in the domestic coal cap (PatEx has one solid
+fossil carrier).
 
 District heating: the share of heat demand and the network loss rate come from PatEx
 ([buildings.md](buildings.md)).

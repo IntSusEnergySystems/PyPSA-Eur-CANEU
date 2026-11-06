@@ -53,6 +53,12 @@ def get_compose_inputs(w):
         eurostat=(
             resources("eurostat_energy_balances.csv")
             if cfg["co2_budget"]["relative"]
+            # PatEx import limits: today's domestic production per fuel
+            or (
+                cfg["import_limits"]["enable"]
+                and cfg["patex"]["enable"]
+                and cfg["patex"]["import_limits"]
+            )
             else []
         ),
         co2=(

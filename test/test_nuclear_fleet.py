@@ -94,3 +94,21 @@ def test_apply_replaces_generators_and_drops_declined_extension(tmp_path):
     apply_nuclear_fleet(n_next, n, costs(), 2040, options, None)
     assert n_next.links.at["BE0 0 nuclear official", "p_nom_max"] == 0.0
     assert n_next.links.at["BE0 0 nuclear late", "p_nom"] > 0
+
+
+def test_apply_without_usable_reactor(tmp_path):
+    """A horizon after every end date: PyPSA-Eur's nuclear removed, nothing added."""
+    fn = tmp_path / "fleet.csv"
+    fleet().reset_index().to_csv(fn, index=False)
+    options = dict(
+        fleet_file=fn,
+        default_lifetime=50,
+        extension_years=10,
+        min_remaining_years=4,
+        optional_extension=True,
+        must_run_margin=0.1,
+    )
+    n = network()
+    apply_nuclear_fleet(n, None, costs(), 2100, options, None)
+    assert not (n.generators.carrier == "nuclear").any()
+    assert not (n.links.carrier == "nuclear").any()

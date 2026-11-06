@@ -122,8 +122,12 @@ def apply_nuclear_fleet(
             marginal_cost=costs.at["uranium", "fuel"],
         )
 
+    if usable.empty:
+        logger.info(f"Nuclear fleet {horizon}: no usable reactor in the network")
+        return
+
     efficiency = costs.at["nuclear", "efficiency"]
-    names = usable.bus + " nuclear " + usable["reactor"].values
+    names = pd.Index(usable["bus"].astype(str) + " nuclear " + usable["reactor"].astype(str))
     p_nom = (usable["net_mw"] / efficiency).set_axis(names)
     extension = usable["extension"].set_axis(names)
     optional = extension & options["optional_extension"]

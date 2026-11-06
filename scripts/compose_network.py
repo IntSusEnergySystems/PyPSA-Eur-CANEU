@@ -44,6 +44,7 @@ from scripts.prepare_network import (
     maybe_adjust_costs_and_potentials,
 )
 from scripts.prepare_network import main as prepare_network_for_solving
+from scripts._nuclear_fleet import apply_nuclear_fleet
 from scripts.prepare_perfect_foresight import apply_phase_outs
 from scripts.prepare_perfect_foresight import main as prepare_perfect_foresight
 from scripts.prepare_sector_network import (
@@ -133,6 +134,17 @@ if __name__ == "__main__":
     if foresight == "myopic" and not is_first_horizon:
         apply_brownfield(
             n, n_previous, inputs, params, current_horizon, renewable_carriers
+        )
+
+    # nuclear reactors from an official table, lifetime extension, must-run (T34)
+    if params.nuclear_fleet["enable"]:
+        apply_nuclear_fleet(
+            n,
+            n_previous,
+            costs,
+            current_horizon,
+            {**params.nuclear_fleet, "fleet_file": inputs.nuclear_fleet},
+            params.conventional.get("nuclear", {}).get("p_max_pu"),
         )
 
     if foresight == "perfect":

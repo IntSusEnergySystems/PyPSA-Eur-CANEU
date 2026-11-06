@@ -3176,6 +3176,60 @@
         }
       }
     },
+    "NuclearFleetConfig": {
+      "description": "Nuclear fleet from an official per-reactor table (T34).",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Replace PyPSA-Eur's nuclear (powerplantmatching generators and links) by one link per reactor of `fleet_file`, at every planning horizon.",
+          "type": "boolean"
+        },
+        "fleet_file": {
+          "default": "data/nuclear_fleet.csv",
+          "description": "Per-reactor table: country, reactor, lat, lon, net_mw, commissioning_year, retirement_year (official, may be empty), end_date_includes_extension, lifetime (official, may be empty), status, sources.",
+          "type": "string"
+        },
+        "default_lifetime": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lifetime [a] of reactors with neither an official retirement year nor an official lifetime; empty = the cost data's nuclear lifetime."
+        },
+        "extension_years": {
+          "default": 10,
+          "description": "One lifetime extension [a] after the retirement year.",
+          "type": "integer"
+        },
+        "min_remaining_years": {
+          "default": 5,
+          "description": "A reactor is not used at a horizon if its retirement year (after extension) is within this many years after the horizon.",
+          "type": "integer"
+        },
+        "optional_extension": {
+          "default": true,
+          "description": "True: the model decides whether to keep a reactor in its extension (at the fixed O&M cost); false: it is kept.",
+          "type": "boolean"
+        },
+        "must_run_margin": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Must-run: p_min_pu = p_max_pu \u2212 margin (per unit of capacity; p_max_pu = `conventional.nuclear.p_max_pu`). Empty = fully flexible."
+        }
+      }
+    },
     "OverpassApiConfig": {
       "description": "Configuration for `overpass_api` settings.",
       "properties": {
@@ -16610,6 +16664,60 @@
             "type": "string"
           },
           "type": "array"
+        }
+      }
+    },
+    "nuclear_fleet": {
+      "description": "Nuclear fleet from an official per-reactor table (T34).",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Replace PyPSA-Eur's nuclear (powerplantmatching generators and links) by one link per reactor of `fleet_file`, at every planning horizon.",
+          "type": "boolean"
+        },
+        "fleet_file": {
+          "default": "data/nuclear_fleet.csv",
+          "description": "Per-reactor table: country, reactor, lat, lon, net_mw, commissioning_year, retirement_year (official, may be empty), end_date_includes_extension, lifetime (official, may be empty), status, sources.",
+          "type": "string"
+        },
+        "default_lifetime": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lifetime [a] of reactors with neither an official retirement year nor an official lifetime; empty = the cost data's nuclear lifetime."
+        },
+        "extension_years": {
+          "default": 10,
+          "description": "One lifetime extension [a] after the retirement year.",
+          "type": "integer"
+        },
+        "min_remaining_years": {
+          "default": 5,
+          "description": "A reactor is not used at a horizon if its retirement year (after extension) is within this many years after the horizon.",
+          "type": "integer"
+        },
+        "optional_extension": {
+          "default": true,
+          "description": "True: the model decides whether to keep a reactor in its extension (at the fixed O&M cost); false: it is kept.",
+          "type": "boolean"
+        },
+        "must_run_margin": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Must-run: p_min_pu = p_max_pu \u2212 margin (per unit of capacity; p_max_pu = `conventional.nuclear.p_max_pu`). Empty = fully flexible."
         }
       }
     },

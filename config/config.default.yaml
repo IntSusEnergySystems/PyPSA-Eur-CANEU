@@ -1609,6 +1609,16 @@ import_limits:
   domestic: {}
   bio_imports: []
 
+# docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#nuclear_fleet_cf
+nuclear_fleet:
+  enable: false
+  fleet_file: data/nuclear_fleet.csv
+  default_lifetime:
+  extension_years: 10
+  min_remaining_years: 5
+  optional_extension: true
+  must_run_margin:
+
 # docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#patex_cf
 patex:
   enable: false

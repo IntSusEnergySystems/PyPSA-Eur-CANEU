@@ -10,4 +10,5 @@ See the docs for more details: https://pypsa-eur.readthedocs.io/en/latest/valida
 """
 
 import scripts._import_limits_config  # noqa: F401
+import scripts._nuclear_fleet_config  # noqa: F401
 import scripts._patex_config  # noqa: F401

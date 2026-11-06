@@ -25,6 +25,16 @@ patex:
 industry:
   waste_to_energy: true   # waste CHPs burn non-recycled plastics (CO2 counted)
 
+# Nuclear (T34): one link per reactor from data/nuclear_fleet.csv (official sources),
+# no duplicate generators; one 10-year extension (model's choice, at fixed O&M cost)
+# unless the official end date is already an extension; gone within 5 years of its end;
+# 50 years where no official end date exists (user, 2026-11-07); must-run 0.10 below
+# the country availability.
+nuclear_fleet:
+  enable: true
+  default_lifetime: 50
+  must_run_margin: 0.10
+
 # Gross imports per fuel capped at PatEx's, summed over the modelled countries
 # (patex.import_limits); biogas and bioliquids imports added for that.
 import_limits:

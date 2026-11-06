@@ -13,7 +13,7 @@ the reasons behind each choice are in the "Why" section of each sector file and 
 | Transport (road, rail, aviation, navigation, EV fleet) | [transport.md](transport.md) |
 | Industry (carriers, feedstock, process emissions, plastics) | [industry.md](industry.md) |
 | Agriculture | [agriculture.md](agriculture.md) |
-| Energy system (base load, CO2 intensities, CO2 budget, power, imports, waste) | [energy.md](energy.md) |
+| Energy system (base load, CO2 intensities, CO2 budget, power, imports, nuclear, waste) | [energy.md](energy.md) |
 
 ## Rule of the link
 

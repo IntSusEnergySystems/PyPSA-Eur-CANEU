@@ -165,6 +165,54 @@ fossil carrier).
 District heating: the share of heat demand and the network loss rate come from PatEx
 ([buildings.md](buildings.md)).
 
+## Nuclear fleet (`nuclear_fleet`, T34)
+
+A standalone option of this fork (works without PatEx; default off). Upstream PyPSA-Eur
+has three problems with nuclear in sector runs: every country's nuclear is both an
+electricity `Generator` (no build year, infinite lifetime: never retired, e.g. Belgium's
+4.1 GW kept to 2050) and a sector `Link` from `EU uranium` (the same plants twice); the
+uranium bus has no supply, so the links cannot run; and powerplantmatching (0.8.1) is out
+of date (closed Belgian units without end date, missing British units, gross capacities).
+
+With the option, at every planning horizon (after the brownfield step) the nuclear
+generators and links are replaced by one Link per reactor of `data/nuclear_fleet.csv`
+(uranium → nearest AC bus of the country, cost-data efficiency, VOM and fuel), with a
+uranium supply at the cost-data fuel price. Rules per reactor and horizon `h`:
+
+- retirement year = official end date (law, government or regulator decision, licence,
+  operator's announced closure), else commissioning year + `default_lifetime`;
+- one extension of `extension_years` (10) after it, unless the official end date is
+  already an extension (`end_date_includes_extension`, e.g. Doel 4 / Tihange 3 2035,
+  Borssele 2033, Krško 2043, Paks 50 years, the British AGRs, Almaraz 2030);
+- not used at `h` if its retirement year after extension is within `min_remaining_years`
+  (5) after `h`; reactors under construction from their expected grid connection;
+- in its extension, the model decides whether to keep it (extendable up to its capacity,
+  at the cost-data fixed O&M; no specific long-term-operation investment in the data),
+  never more than it kept at the previous horizon;
+- must-run (`must_run_margin`): `p_min_pu = p_max_pu − margin`, `p_max_pu` = the country
+  availability of `conventional.nuclear.p_max_pu` (weather year), as PyPSA-Wal.
+
+No new build (nuclear is not extendable in this configuration; PAC 2.0: to confirm with
+CAN, Q16).
+
+Why: user's rules (2026-11-07): every country can use its installed nuclear, one 10-year
+extension, not used within 5 years of its end; default lifetime 50 years where no official
+end date or lifetime exists (France's regulator allows operation 10 years after each 4th
+periodic review, i.e. to about 50 years for the 900 MW fleet; no country sets a legal
+lifetime); dates that are already an extension get no second one.
+
+Data (`data/nuclear_fleet.csv`, built 2026-11-07): reactors in operation and under
+construction in the PyPSA-Eur countries, net MW, grid connection, official end dates with
+their basis and source URLs per row; coordinates from powerplantmatching 0.8.1. Sources:
+World Nuclear Association country profiles and reactor database, national decisions and
+regulators, operators; IAEA PRIS could not be read (JavaScript-only), so capacities and
+dates should be checked against it. Uncertain: British AGR station capacities, Spain's
+Ascó II and Vandellòs II (no official date, default lifetime used), Belgium (2003 law
+repealed in May 2025; legal end date 2035, 2037 or 2045 in a draft, 2035 kept), Romania's
+licences, Hinkley Point C (unit 1 2030 per EDF, unit 2 2031 assumed, 1630 MW net each),
+Paks II unit 5 (2032, 1200 MW rating). Sizewell C (investment decision July 2025) is not
+included: first nuclear concrete not confirmed.
+
 ## Gas storage (data fix)
 
 Existing gas storage comes from SciGRID_gas (`IGGIELGN_Storages`). Upstream sizes it with

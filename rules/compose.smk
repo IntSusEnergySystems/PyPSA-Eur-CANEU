@@ -50,6 +50,9 @@ def get_compose_inputs(w):
             else []
         ),
         co2_price=resources("co2_price.csv"),
+        nuclear_fleet=(
+            cfg["nuclear_fleet"]["fleet_file"] if cfg["nuclear_fleet"]["enable"] else []
+        ),
         eurostat=(
             resources("eurostat_energy_balances.csv")
             if cfg["co2_budget"]["relative"]
@@ -287,5 +290,6 @@ rule compose_network:
         adjustments=config_provider("adjustments"),
         patex=config_provider("patex"),
         import_limits=config_provider("import_limits"),
+        nuclear_fleet=config_provider("nuclear_fleet"),
     script:
         scripts("compose_network.py")

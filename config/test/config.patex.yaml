@@ -31,6 +31,13 @@ plotting:
     aviation electricity: "#5fa3c7"
     shipping electricity: "#4f7fa8"
     H2 for rail: "#8b4f7d"
+    gas for cooking: "#c27c4e"  # PatEx soft-link: non-electric cooking (T18)
+    oil for cooking: "#8f7a5a"
+    coal for cooking: "#6b5a4a"
+    solid biomass for cooking: "#9aa04a"
+    H2 for cooking: "#b07aa1"
+    urban central heat losses: "#d9826b"  # PatEx district heating losses (T19)
+    heat losses: "#d9826b"  # same, as plot_summary names it
   # no methanol map: PatEx has no methanol ships (Q14), so the methanol balance of
   # PatEx countries is empty and PyPSA's explore() fails on it
   balance_map_interactive:

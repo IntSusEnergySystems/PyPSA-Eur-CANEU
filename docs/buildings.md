@@ -3,7 +3,8 @@
 ## PatEx → bundle
 
 Source variables: `bld_energy-demand[TWh]` (by building type, end use, carrier, incl.
-ambient heat) and `bld_energy-demand-incl-district-heating[TWh]`, `bld_district-energy-demand[TWh]`.
+ambient heat) and `bld_energy-demand-incl-district-heating[TWh]`, `bld_district-energy-demand[TWh]`;
+heat network losses from `elc_energy-sankey-detailed[TWh]` (label `heat`).
 
 | Bundle column (`patex_energy_totals_{h}.csv`) | PatEx rule |
 |---|---|
@@ -11,7 +12,9 @@ ambient heat) and `bld_energy-demand-incl-district-heating[TWh]`, `bld_district-
 | `electricity {residential,services} {space,water}` | electricity of that end use |
 | `electricity {residential,services}` | all building electricity |
 | `total / electricity {residential,services} cooking` | cooking, all carriers / electricity |
+| `{gas,oil,solid biomass,coal,hydrogen} cooking` | non-electric cooking per fuel, residential + services (fossil + bio + synthetic per fuel) |
 | `district heat share` (`patex_parameters_{h}.csv`) | district heat / (residential + services space + water), same final-energy base |
+| `district heating loss` (`patex_parameters_{h}.csv`) | heat `distribution-losses` / heat delivered (`fec` + `consumption-energy-branch`): PatEx's `network-losses[%]`; 0 without heat networks |
 
 Ignored on purpose: non-electric space/water heating in `bld_energy-demand` (taken from
 the incl-district-heating variable instead), non-electric appliances / cooling / others
@@ -31,6 +34,8 @@ PyPSA-Eur models it through the COP.
 | renovation | config | `sector.reduce_space_heat_exogenously: false`: PatEx demand already includes renovation |
 | district heating | `build_district_heat_share.py` | country share of the horizon = PatEx's, spread over nodes like today's urban population; replaces today's share + `district_heating.progress` |
 | electric heating in the load | `build_heat_demand` | PyPSA-Eur subtracts the (PatEx) electric space/water heating from the historical electricity load; the residual is then rescaled (see [energy.md](energy.md), base load) |
+| district heating losses | `add_heat`, `add_patex_district_heating_losses` | `district_heating_loss` = 0 for the PatEx countries (`patex.district_heating`); load `urban central heat losses` on each `urban central heat` bus = PatEx rate × (building + low-temperature industry heat loads on the bus), hour by hour |
+| non-electric cooking | `add_patex_cooking_loads` | per node and fuel a flat load (`gas / oil / coal / solid biomass for cooking` bus) fed from the fuel bus by a link with the fuel's CO2 (PatEx intensity; none for solid biomass), `H2 for cooking` on the H2 bus; split over nodes like PyPSA-Eur's cooking totals. Fallback countries: none (as upstream) |
 
 Heat buses: residential and services heat goes to PyPSA-Eur's `rural heat`,
 `urban decentral heat` and `urban central heat` buses; the network chooses the heating
@@ -49,20 +54,25 @@ technologies (heat pumps, boilers, district heating supply).
   (`heat_demand = heat + heat × network-losses[%]`, per country, reported in
   `elc_energy-sankey-detailed`, heat → distribution-losses, buildings and industry
   together). PyPSA-Eur multiplies the building urban central heat demand by
-  `1 + district_heating_loss` and puts industry low-temperature heat on the same bus
-  without loss. Same base, no double count; the rates differ and PyPSA-Eur's loss misses
-  the industry heat (T19).
+  `1 + district_heating_loss` (15 %, EU-wide) and puts industry low-temperature heat on
+  the same bus without loss. So the PatEx countries get PatEx's rate per country on all
+  the heat the network delivers, industry included, as their own load (user's proposal,
+  T19, 2026-11-06). The rate is applied to PyPSA-Eur's heat on the bus (useful heat for
+  buildings), not PatEx's absolute losses, which sit on PatEx's final-energy base and
+  include energy-branch heat PyPSA-Eur does not put on these buses. Fallback countries
+  keep 15 %.
+- **Non-electric cooking.** PatEx's gas, oil, biomass, coal and hydrogen cooking had no
+  load in PyPSA-Eur (upstream has none either: its `total ... cooking` columns are never
+  used). Cooking is not heat (user): it gets its own loads per fuel, with combustion CO2
+  like `gas for industry`, so the fuel burnt for cooking and its CO2 are in the model
+  (T18, 2026-11-06). Flat profile: PyPSA-Eur has no hourly cooking profile, and the gas
+  and oil buses have storage, so the shape barely matters.
 
 ## Checks and known gaps
 
-- Ledger: `building heat (useful)` per country ≈ 1; above 1 by the district heating losses.
-- **District heating losses (T19)**: PyPSA-Eur adds `sector.district_heating_loss` (15 %,
-  EU-wide) to the building part of the urban central heat demand; PatEx reports
-  delivered heat and its own network losses per country (buildings and industry).
-  Proposal: losses from PatEx, PyPSA-Eur loss set to 0 for PatEx countries.
-- **Non-electric cooking (T18)**: exported (`total ... cooking` − `electricity ... cooking`)
-  but PyPSA-Eur has no load for it. Proposal: cooking loads per carrier (gas, oil,
-  biomass, hydrogen) with their CO2. Electric cooking is in the base load.
+- Ledger: `building heat (useful)` per country = 1 (losses in their own load),
+  `district heating loss [-]` = PatEx's rate, `cooking <fuel>` = 1.
+- Electric cooking is in the base load.
 - **District heating trends (T17)** checked with Climact.
 - Heating efficiencies are PyPSA-Eur's (today's mix) while PatEx's carrier mix changes
   over time: open question Q1 (final vs useful boundary).

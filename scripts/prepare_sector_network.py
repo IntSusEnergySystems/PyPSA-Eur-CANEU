@@ -2701,6 +2701,125 @@ def add_patex_transport_loads(n: pypsa.Network, energy: pd.DataFrame) -> None:
         )
 
 
+#: PatEx non-electric cooking fuels (``<fuel> cooking`` bundle columns)
+PATEX_COOKING_FUELS = ("gas", "oil", "solid biomass", "coal", "hydrogen")
+
+
+def add_patex_cooking_loads(
+    n: pypsa.Network,
+    costs: pd.DataFrame,
+    energy: pd.DataFrame,
+    spatial: SimpleNamespace,
+) -> None:
+    """
+    PatEx soft-link: non-electric cooking (residential and services).
+
+    PyPSA-Eur has no such load (electric cooking is in the base load).
+    ``energy``: node × column MWh over the modelled period. One flat load per
+    node and fuel, supplied from the fuel bus by a link with the fuel's
+    combustion CO2, like ``gas for industry``; hydrogen sits on the H2 bus.
+    """
+    weights = n.snapshot_weightings.generators
+    flat = pd.Series(1.0 / weights.sum(), index=n.snapshots)
+    nodes = energy.index
+    fuels = {
+        "gas cooking": ("gas for cooking", spatial.gas.df.loc[nodes, "nodes"], "gas"),
+        "oil cooking": ("oil for cooking", spatial.oil.nodes[0], "oil"),
+        "coal cooking": ("coal for cooking", spatial.coal.nodes[0], "coal"),
+        "solid biomass cooking": (
+            "solid biomass for cooking",
+            spatial.biomass.df.loc[nodes, "nodes"],
+            None,
+        ),
+    }
+    for column, (carrier, bus0, fuel) in fuels.items():
+        has = energy[column] > 0
+        if not has.any():
+            continue
+        bus0 = pd.Series(bus0, index=nodes)[has]
+        missing = set(bus0) - set(n.buses.index)
+        if missing:
+            raise ValueError(f"PatEx {column}: no bus {sorted(missing)} in the network")
+        if carrier not in n.carriers.index:
+            n.add("Carrier", carrier)
+        buses = nodes[has] + f" {carrier}"
+        n.add("Bus", buses, location=nodes[has], carrier=carrier, unit="MWh_LHV")
+        n.add(
+            "Load",
+            buses,
+            bus=buses,
+            carrier=carrier,
+            p_set=pd.DataFrame(
+                np.outer(flat, energy.loc[has, column]), index=n.snapshots, columns=buses
+            ),
+        )
+        co2 = {}
+        if fuel is not None:
+            co2 = dict(bus2="co2 atmosphere", efficiency2=costs.at[fuel, "CO2 intensity"])
+        n.add(
+            "Link",
+            buses,
+            bus0=bus0.values,
+            bus1=buses,
+            carrier=carrier,
+            p_nom_extendable=True,
+            **co2,
+        )
+
+    has = energy["hydrogen cooking"] > 0
+    if has.any():
+        if "H2 for cooking" not in n.carriers.index:
+            n.add("Carrier", "H2 for cooking")
+        n.add(
+            "Load",
+            nodes[has],
+            suffix=" H2 for cooking",
+            bus=nodes[has] + " H2",
+            carrier="H2 for cooking",
+            p_set=pd.DataFrame(
+                np.outer(flat, energy.loc[has, "hydrogen cooking"]),
+                index=n.snapshots,
+                columns=nodes[has] + " H2 for cooking",
+            ),
+        )
+
+
+def add_patex_district_heating_losses(n: pypsa.Network, loss: pd.Series) -> None:
+    """
+    PatEx soft-link: district heating network losses as their own load.
+
+    PatEx's loss rate per country (``loss``, losses / heat delivered) applies to
+    all the heat the networks deliver: the building and low-temperature
+    industry heat loads on each ``urban central heat`` bus, hour by hour.
+    Replaces ``district_heating_loss`` for the PatEx countries (set to 0 there
+    in ``add_heat``).
+    """
+    delivered = n.loads[
+        n.loads.bus.str.endswith(" urban central heat")
+        & n.loads.carrier.isin(
+            ["urban central heat", "low-temperature heat for industry"]
+        )
+    ]
+    p_set = n.get_switchable_as_dense("Load", "p_set")[delivered.index]
+    p_set = p_set.T.groupby(delivered.bus).sum().T
+    rate = p_set.columns.map(n.buses.location).str[:2].map(loss)
+    keep = rate.notna() & (rate > 0)
+    if not keep.any():
+        return
+    if "urban central heat losses" not in n.carriers.index:
+        n.add("Carrier", "urban central heat losses")
+    buses = p_set.columns[keep]
+    n.add(
+        "Load",
+        buses + " losses",
+        bus=buses,
+        carrier="urban central heat losses",
+        p_set=(p_set.loc[:, keep] * rate[keep].values).set_axis(
+            buses + " losses", axis=1
+        ),
+    )
+
+
 def build_heat_demand(
     n, hourly_heat_demand_file, pop_weighted_energy_totals, heating_efficiencies
 ):
@@ -2795,6 +2914,7 @@ def add_heat(
     spatial: object,
     options: dict,
     investment_year: int,
+    no_district_heating_loss: list[str] | None = None,
 ):
     """
     Add heat sector to the network including heat demand, heat pumps, storage, and conversion technologies.
@@ -2854,6 +2974,9 @@ def add_heat(
         Dictionary containing configuration options for heat sector components
     investment_year : int
         Year for which to get the heat sector components and costs
+    no_district_heating_loss : list[str], optional
+        Countries whose urban central heat load gets no ``district_heating_loss``
+        (PatEx soft-link: losses added as their own load).
 
     Returns
     -------
@@ -2963,13 +3086,16 @@ def add_heat(
             )
 
         else:
+            loss = pd.Series(
+                options["district_heating"]["district_heating_loss"], index=nodes
+            )
+            if no_district_heating_loss:
+                loss[pop_layout.ct[nodes].isin(no_district_heating_loss)] = 0.0
             heat_load = (
                 heat_demand.T.groupby(level=1)
                 .sum()
                 .T[nodes]
-                .multiply(
-                    factor * (1 + options["district_heating"]["district_heating_loss"])
-                )
+                .multiply(factor * (1 + loss))
             )
 
         n.add(
@@ -6459,6 +6585,8 @@ def main(
     patex_totals = None
     patex_land_transport = None
     patex_transport_loads = None
+    patex_cooking_loads = None
+    patex_dh_loss = None
     patex_evs = None
     if patex["enable"]:
         from patex_pypsa import override_country_totals
@@ -6483,6 +6611,13 @@ def main(
                     "total domestic navigation",
                     "total international navigation",
                 ],
+                **{
+                    f"{fuel} cooking": [
+                        "total residential cooking",
+                        "total services cooking",
+                    ]
+                    for fuel in PATEX_COOKING_FUELS
+                },
             }
             # hydrogen navigation: country fuel share in add_shipping
             missing = {*related, "hydrogen navigation"} - set(patex_totals.columns)
@@ -6531,6 +6666,9 @@ def main(
                     "hydrogen rail",
                 ]
             ]
+            patex_cooking_loads = 1e6 * e[
+                [f"{fuel} cooking" for fuel in PATEX_COOKING_FUELS]
+            ]
             # EVs per node: PatEx country fleet, split like PyPSA-Eur's cars
             number_cars = pd.read_csv(inputs.transport_data, index_col=0)["number cars"]
             patex_evs = override_country_totals(
@@ -6539,6 +6677,15 @@ def main(
                 pop_layout.ct,
                 pop_layout.fraction,
             ).loc[e.index, "number evs"]
+        if patex["district_heating"]:
+            # PatEx network loss rate per country replaces district_heating_loss
+            parameters = pd.read_csv(inputs.patex_parameters, index_col=0)
+            if "district heating loss" not in parameters:
+                raise ValueError(
+                    f"{inputs.patex_parameters}: no 'district heating loss': re-export "
+                    "the bundle (patex-pypsa export-coupling)"
+                )
+            patex_dh_loss = parameters["district heating loss"]
 
     fn = inputs.gas_input_nodes_simplified
     gas_input_nodes = pd.read_csv(fn, index_col=0) if fn else None
@@ -6679,6 +6826,9 @@ def main(
             spatial=spatial,
             options=options,
             investment_year=current_horizon,
+            no_district_heating_loss=(
+                patex_dh_loss.index.tolist() if patex_dh_loss is not None else None
+            ),
         )
 
     if options["biomass"]:
@@ -6832,5 +6982,12 @@ def main(
     # as own loads (shape of the rescaled base load, so after it)
     if patex_transport_loads is not None:
         add_patex_transport_loads(n, patex_transport_loads)
+
+    # PatEx soft-link: non-electric cooking (flat) and district heating losses
+    # (PatEx rate on all heat on the urban central buses, industry included)
+    if patex_cooking_loads is not None:
+        add_patex_cooking_loads(n, costs, patex_cooking_loads, spatial)
+    if patex_dh_loss is not None:
+        add_patex_district_heating_losses(n, patex_dh_loss)
 
     logger.info("Completed sector components")

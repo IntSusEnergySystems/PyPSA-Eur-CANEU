@@ -119,8 +119,8 @@ are not imposed: PyPSA-Eur optimises the supply and its CO2. They are kept to co
 afterwards (T13). Fuel origin (fossil / bio / synthetic), refineries, heating
 technologies, CCS and storage are PyPSA-Eur's decisions.
 
-District heating: the share of heat demand comes from PatEx ([buildings.md](buildings.md));
-network losses are PyPSA-Eur's (`district_heating_loss`, T19).
+District heating: the share of heat demand and the network loss rate come from PatEx
+([buildings.md](buildings.md)).
 
 ## Gas storage (data fix)
 

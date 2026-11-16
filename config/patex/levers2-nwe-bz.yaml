@@ -1,0 +1,40 @@
+# North-western Europe at bidding-zone level (user, 2026-11-09): GB, IE, BE, NL, LU, DE,
+# FR, DK and NO (NO: hydro flexibility, interconnectors, Northern Lights CO2 storage).
+# Add last, after the CO2 overlay:
+#   --configfile config/config.patex.yaml config/patex/co2-cap-50-24h.yaml \
+#                config/patex/levers2-nwe-bz.yaml
+# GB and NO have no PatEx data (patex.fallback_countries): PyPSA-Eur demand; import
+# caps = EU import cap per person x population (patex.fallback_import_caps), domestic
+# supply caps from Eurostat (GB: 2019, last year reported).
+
+run:
+  name: patex-levers2-nwe-bz-co2-cap-50-24h
+
+countries: [GB, IE, BE, NL, LU, DE, FR, DK, "NO"]  # "NO": YAML reads NO as false
+
+patex:
+  # Placeholder scenario (levers = 2) until the PAC 2.0 lever file (T6).
+  coupling_dir: ../PATEX2PYPSA/runs/levers2
+
+# One node per bidding zone (DK1/DK2, NO1-NO5 separate; one node for the other
+# countries): fast, close to the market and to TYNDP's zones.
+clustering:
+  mode: administrative
+  administrative:
+    level: bz
+
+# Several capacity-factor classes per node so that good and poor sites stay apart
+# inside a large node.
+renewable:
+  onwind:
+    resource_classes: 4
+  offwind-ac:
+    resource_classes: 4
+  offwind-dc:
+    resource_classes: 4
+  offwind-float:
+    resource_classes: 4
+  solar:
+    resource_classes: 4
+  solar-hsat:
+    resource_classes: 4

@@ -48,8 +48,13 @@ rule build_solar_rooftop_potentials:
     """Computes solar rooftop potentials per resource class for all clustered model regions."""
     input:
         pop_layout=resources("pop_layout_total.nc"),
+        rooftop_totals=lambda w: (
+            config_provider("renewable_limits", "rooftop_pv_file")(w) or []
+        ),
         class_regions=resources("regions_by_class_solar.geojson"),
         cutout=lambda w: input_cutout(w),
+    params:
+        rooftop_share=config_provider("renewable_limits", "rooftop_pv_share"),
     output:
         potentials=resources("solar_rooftop_potentials.csv"),
     log:
@@ -210,6 +215,7 @@ rule build_central_heating_temperature_profiles:
     resources:
         mem_mb=20000,
     params:
+        temperature_shift=lambda w: patex_temperature_shift(w),
         max_forward_temperature_central_heating_baseyear=config_provider(
             "sector",
             "district_heating",
@@ -614,6 +620,7 @@ rule build_cop_profiles:
     resources:
         mem_mb=20000,
     params:
+        temperature_shift=lambda w: patex_temperature_shift(w),
         heat_pump_sink_T_decentral_heating=config_provider(
             "sector", "heat_pump_sink_T_individual_heating"
         ),

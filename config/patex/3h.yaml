@@ -1,0 +1,18 @@
+# 3-hourly resolution (user, 2026-11-10: batteries, electrolysis and other short-term
+# flexibility vanish with daily averages). Add last, after the CO2 overlay:
+#   --configfile config/config.patex.yaml config/patex/levers2-nwe-bz.yaml \
+#                config/patex/co2-cap-90-2040-24h.yaml config/patex/3h.yaml
+
+run:
+  name: patex-levers2-nwe-bz-co2-90-2040-3h
+
+clustering:
+  temporal:
+    averaging: 3h
+
+solving:
+  # 3h NWE measured MaxRSS 40-41 GB: nic6 job 28 cores / 53200M (CLUSTER_NIC6.md)
+  mem_mb: 50000
+  solver_options:
+    gurobi-default:
+      threads: 24

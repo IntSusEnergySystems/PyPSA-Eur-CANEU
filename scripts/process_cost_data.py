@@ -71,6 +71,7 @@ def prepare_costs(
     max_hours: dict = None,
     nyears: float = 1.0,
     custom_costs_fn: str = None,
+    network_costs: dict | None = None,
 ) -> pd.DataFrame:
     """
     Standardize and prepare extended costs data.
@@ -158,6 +159,13 @@ def prepare_costs(
                 DeprecationWarning,
             )
             logger.info(f"Overwriting {attr} with:\n{overwrites}")
+
+    # PyPSA-Eur-CANEU `network_costs`: one regulated discount rate for network assets
+    rate = (network_costs or {}).get("discount_rate")
+    if rate is not None:
+        techs = [t for t in network_costs.get("technologies", []) if t in costs.index]
+        costs.loc[techs, "discount rate"] = float(rate)
+        logger.info(f"network_costs: discount rate {rate} for {len(techs)} technologies")
 
     annuity_factor = calculate_annuity(costs["lifetime"], costs["discount rate"])
     annuity_factor_fom = annuity_factor + costs["FOM"] / 100.0
@@ -264,6 +272,7 @@ if __name__ == "__main__":
         snakemake.params.max_hours,
         nyears,
         snakemake.input.custom_costs,
+        snakemake.params.get("network_costs"),
     )
 
     costs_processed.to_csv(snakemake.output[0])

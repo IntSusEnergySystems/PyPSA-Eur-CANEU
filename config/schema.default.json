@@ -456,6 +456,38 @@
         }
       }
     },
+    "CO2StorageConfig": {
+      "description": "Geological CO2 storage per country from injection projects (T32).",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Cap the CO2 sequestered per country and year at the injection capacity of its storage projects (`projects_file`), all build years of the `co2 sequestered` stores together. Replaces the CO2StoP limits per node (`sector.regional_co2_sequestration_potential`); the total over all countries (`sector.co2_sequestration_potential`) still applies. Needs `co2_spatial`.",
+          "type": "boolean"
+        },
+        "projects_file": {
+          "default": "data/co2_storage_projects.csv",
+          "description": "European storage projects from the IEA CCUS Projects Database (`scripts/update_co2_storage_projects.py`).",
+          "type": "string"
+        },
+        "built_only_until": {
+          "default": 2030,
+          "description": "Up to this horizon only projects in operation or under construction count (FID taken); after it, planned projects count from their operation year.",
+          "type": "integer"
+        },
+        "undated_from": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 2040,
+          "description": "Planned projects without an operation year count from this horizon (empty: never)."
+        }
+      }
+    },
     "ClusteringConfig": {
       "description": "Configuration for `clustering` settings.",
       "properties": {
@@ -2239,6 +2271,99 @@
         }
       }
     },
+    "DistributionGridConfig": {
+      "description": "Which loads use the distribution grid, and the cost of hosting rooftop PV.",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Apply `industry_hv_share` and `pv_hosting_cost` (needs `sector.electricity_distribution_grid`).",
+          "type": "boolean"
+        },
+        "industry_hv_share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            }
+          ],
+          "default": 0.0,
+          "description": "Share of `industry electricity` connected at transmission level, left on the transmission bus instead of the low-voltage bus; one number or {country: share} (missing countries: key `default`, else 0)."
+        },
+        "pv_hosting_cost": {
+          "default": 0.0,
+          "description": "Distribution reinforcement caused by rooftop PV [EUR/kWp], added to the rooftop PV capital cost at the annuity (discount rate, lifetime, FOM) of the `electricity distribution grid`.",
+          "type": "number"
+        }
+      }
+    },
+    "EVFlexibilityConfig": {
+      "description": "Electric-car flexibility after Elia AdeqFlex 2025 (T16).",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Only the market share of the EV fleet is flexible; the rest of the EV load follows Elia's charging curves on the electricity bus.",
+          "type": "boolean"
+        },
+        "market_share": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Share of the EV fleet and EV demand steered by the system (Elia V1M + V2M); replaces `sector.bev_dsm_availability`.",
+          "type": "object"
+        },
+        "avail_max": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Maximum plugged-in share of EVs (Elia); replaces `sector.bev_avail_max`.",
+          "type": "object"
+        },
+        "avail_mean": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Mean plugged-in share (Elia); replaces `sector.bev_avail_mean`.",
+          "type": "object"
+        },
+        "avail_min": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Floor of the plugged-in share (Elia).",
+          "type": "object"
+        },
+        "charging_weights": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object"
+          },
+          "description": "Weights of Elia's daily charging curves for the inflexible EV load (natural V0 vs local V1H/V2H home and work), renormalised over the non-market share; must sum to 1 per horizon.",
+          "type": "object"
+        },
+        "charging_profile_file": {
+          "default": "data/ev_charging/elia_charging_daily_profiles_local.csv",
+          "description": "Elia's daily charging curves in local time (2026 and 2036 vintages).",
+          "type": "string"
+        },
+        "bev_energy": {
+          "default": 0.06,
+          "description": "Battery per EV [MWh] (Elia: 60 kWh); replaces `sector.bev_energy`.",
+          "type": "number"
+        },
+        "v2g": {
+          "default": false,
+          "description": "Vehicle-to-grid (Elia's V2M is not modelled).",
+          "type": "boolean"
+        }
+      }
+    },
     "ElectricityConfig": {
       "description": "Configuration for `electricity` settings.",
       "properties": {
@@ -2677,6 +2802,11 @@
           "description": "Fuel \u2192 cap on domestic production [TWh/a], whole region (fuels: gas, oil, coal). Adds a domestic generator for oil and coal (PyPSA-Eur has none: without it all their supply counts as import); lignite counts as coal.",
           "type": "object"
         },
+        "transit_penalty": {
+          "default": 0.01,
+          "description": "Tie-break [EUR/MWh] on fuel flows between the PatEx region and a modelled non-PatEx country (net flows into or out of the EU-wide pools; gas and H2 pipelines crossing that boundary). Trade costs the same as importing from abroad; without it the solver is indifferent and may route one side's imports through the other. Not a cost estimate.",
+          "type": "number"
+        },
         "bio_imports": {
           "description": "Add carbon-neutral imports of `biogas` (into the gas buses) and/or `bioliquids` (into the oil bus), priced like PyPSA-Eur's domestic biogas and bioliquids (technology-data `biogas` and `biodiesel crops` fuel costs).",
           "items": {
@@ -2903,6 +3033,62 @@
           "default": 0.013,
           "description": "The emissions from oil fuel processing (e.g. oil in petrochemical refinieries). The default value of 0.013 tCO2/MWh is based on DE statistics for 2019; the EU value is very similar.",
           "type": "number"
+        }
+      }
+    },
+    "InterconnectionLimitsConfig": {
+      "description": "Cross-border transmission capacity per border (T30).",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Cap the usable capacity of each border (AC lines \u00d7 s_max_pu + DC links, existing and new) at factor[horizon] \u00d7 (usable capacity of PyPSA-Eur's grid + transfer-capacity increase of the TYNDP projects commissioned up to the horizon).",
+          "type": "boolean"
+        },
+        "projects_file": {
+          "default": "data/interconnection_projects_tyndp2024.csv",
+          "description": "TYNDP 2024 transmission projects per border (`scripts/update_interconnection_projects.py`).",
+          "type": "string"
+        },
+        "project_statuses": {
+          "description": "TYNDP status IDs counted: 1 under consideration, 2 in planning, 3 in permitting, 4 under construction.",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "in_grid_until": {
+          "default": 2025,
+          "description": "Projects commissioned up to this year are taken as already in PyPSA-Eur's grid (OSM data) and not added.",
+          "type": "integer"
+        },
+        "direction": {
+          "default": "max",
+          "description": "How the two directions of a project's transfer-capacity increase become one value (PyPSA lines and links are symmetric).",
+          "enum": [
+            "max",
+            "min",
+            "mean"
+          ],
+          "type": "string"
+        },
+        "factor": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Cap multiplier per planning horizon (a horizon without an entry takes the latest earlier one).",
+          "type": "object"
+        },
+        "ntc_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "data/interconnection_ntc_2030.csv",
+          "description": "TYNDP 2026 reference-grid NTC 2030, logged next to each cap for comparison only (empty: no comparison)."
         }
       }
     },
@@ -3176,6 +3362,30 @@
         }
       }
     },
+    "NetworkCostsConfig": {
+      "description": "One discount rate for all regulated network assets (central parameter).",
+      "properties": {
+        "discount_rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Real discount rate of the network assets in `technologies` (regulated cost of capital), replacing their `discount rate` before the annuity is computed. None: technology-data / `costs.fill_values`."
+        },
+        "technologies": {
+          "description": "Cost-table technologies financed as regulated networks.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      }
+    },
     "NuclearFleetConfig": {
       "description": "Nuclear fleet from an official per-reactor table (T34).",
       "properties": {
@@ -3298,6 +3508,15 @@
           },
           "type": "array"
         },
+        "fallback_demand": {
+          "default": "pypsa",
+          "description": "Demand of the modelled `fallback_countries`: `pypsa` = PyPSA-Eur's own pathways; `eu_trend` = the country's own base-year data (PyPSA-Eur energy totals; Eurostat and UNFCCC relative to the PatEx countries for industry) on the relative trend of the sum over the PatEx countries, fuel shares following the EU's relative change (patex_pypsa.fallback; user, 2026-11-12). Their rows are added to the PatEx tables, so every soft-link hook applies to them; import caps and CO2 storage still treat them as fallback countries.",
+          "enum": [
+            "pypsa",
+            "eu_trend"
+          ],
+          "type": "string"
+        },
         "energy_totals": {
           "default": true,
           "description": "Override buildings, transport and agriculture annual totals per country.",
@@ -3318,19 +3537,65 @@
           "description": "District heating share of heat demand per country from PatEx.",
           "type": "boolean"
         },
+        "heating_efficiencies": {
+          "default": true,
+          "description": "Final-to-useful building heat conversion of the PatEx countries with PatEx's own efficiencies (bundle `total {sector} {use} efficiency` = PatEx useful heat / final heat, technology mix of the horizon; audit #4) instead of `heating_efficiencies.csv` (today's mix): heat demand = PatEx's useful heat. The bundle's district heat share is on this useful heat. Fallback countries keep PyPSA-Eur's efficiencies.",
+          "type": "boolean"
+        },
         "base_load": {
           "default": true,
           "description": "Rescale the residual electricity load per country to the PatEx value.",
           "type": "boolean"
+        },
+        "cooling": {
+          "default": false,
+          "description": "PatEx's electric space cooling (bundle `electricity {residential,services} space cooling`) as its own load per node, with the Hotmaps residential and tertiary cooling profiles applied to the weather year, instead of inside the rescaled base load; today's electric cooling (JRC-IDEES, weather year) is taken out of the measured load with the same profiles (audit #5b). Fallback countries keep cooling in their base load. Needs `base_load`.",
+          "type": "boolean"
+        },
+        "gb_load_dukes": {
+          "default": false,
+          "description": "Scale Great Britain's measured load of the weather year to DUKES 'Electricity available' (UK consumption + losses, DUKES 5.1.2, `data/dukes_electricity_available.csv`): upstream's NESO National Demand excludes embedded wind and solar (2013: -13 %, 2023: -25 %). Hourly shape kept.",
+          "type": "boolean"
+        },
+        "temperature_shift": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Uniform shift [\u00b0C] added, per planning horizon, to the weather year's outdoor temperature for the heat demand profile, the cooling profiles (`patex.cooling`), heat-pump COPs (air and ground sources) and district heating forward temperatures: the climate trend between the weather year and the horizon (audit #5b; user, 2026-11-16: weather year 2023, +0.3 \u00b0C in 2030, +0.7 \u00b0C in 2040, 0.4 \u00b0C per decade). Annual totals are unchanged (PatEx's); what today's measured load holds (electric heating, today's cooling) keeps the unshifted profiles. Horizons not listed: no shift.",
+          "type": "object"
+        },
+        "phev_fleet_factor": {
+          "default": 0.0,
+          "description": "Weight of a plug-in hybrid in the EV fleet that sizes chargers and EV batteries (PatEx `number bev` + factor \u00d7 `number phev`; T16: 0, PHEVs count as combustion cars, their electric km stay in the load).",
+          "type": "number"
         },
         "import_limits": {
           "default": true,
           "description": "With `import_limits.enable`: caps on gross imports per fuel = PatEx imports summed over the modelled countries (replace `import_limits.limits`).",
           "type": "boolean"
         },
+        "fallback_import_caps": {
+          "default": "eu_per_capita",
+          "description": "Import caps of the modelled countries without PatEx data (GB, NO, CH...), per fuel: `eu_per_capita` = EU import cap per person (PatEx caps of every country of the bundle / their population, JRC ARDECO) x the country's population (user, 2026-11-10); `eurostat` = its own Eurostat imports today.",
+          "enum": [
+            "eu_per_capita",
+            "eurostat"
+          ],
+          "type": "string"
+        },
+        "co2_sequestration": {
+          "default": true,
+          "description": "Total CO2 sequestration cap of each horizon = PatEx's CO2 stored summed over the modelled countries (replaces `sector.co2_sequestration_potential`; T32). Fallback countries have no PatEx figure and share it.",
+          "type": "boolean"
+        },
         "plastics_eol_co2": {
           "default": false,
           "description": "CO2 of plastics (HVC) that are not burned for energy. False = PatEx / inventory convention: only waste-to-energy plants emit (`industry: waste_to_energy`); True = PyPSA-Eur default, all of it goes to the air.",
+          "type": "boolean"
+        },
+        "waste_to_energy": {
+          "default": false,
+          "description": "Plastics end of life as in PatEx and the 1990 inventory (audit #2): the non-renewable waste PatEx burns in power and heat plants (bundle `waste to energy fuel` / `co2`) must be burned in waste CHPs within the year, at PatEx's CO2 factor; the rest of the naphtha carbon stays in products (no `HVC to air`). Needs `industry: waste_to_energy` and `plastics_eol_co2: false`.",
           "type": "boolean"
         }
       }
@@ -4940,6 +5205,79 @@
               "type": "boolean"
             }
           }
+        }
+      }
+    },
+    "RenewableLimitsConfig": {
+      "description": "Capacity limits per country for wind and solar (T31).",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Offshore wind per country capped at its goal (`offshore_goals_file`) at every horizon, instead of PyPSA-Eur's per-node potential; up to `planned_until`, onshore wind, offshore wind and solar capped at the capacity planned for that year. Caps count existing and new capacity.",
+          "type": "boolean"
+        },
+        "offshore_goals_file": {
+          "default": "data/offshore_wind_goals.csv",
+          "description": "Offshore wind goals per country [GW] for 2030, 2040, 2050 (columns `gw_<year>`): Member States' non-binding TEN-E goals of January 2023, read in ENTSO-E's ONDP 2024 sea-basin reports.",
+          "type": "string"
+        },
+        "offshore_goal_year": {
+          "default": 2050,
+          "description": "Goal used as the offshore ceiling at every horizon after `planned_until`.",
+          "type": "integer"
+        },
+        "planned_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Planned capacity per country [GW] at `planned_until`: columns `country`, `onwind`, `offwind`, `solar` (TYNDP 2026 National Trends+, `scripts/update_renewables_planned.py`); an empty cell: no cap (offshore: the `gw_<planned_until>` goal). Empty: offshore goal only."
+        },
+        "ground_pv_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ground-mounted PV potential per country [GW] (columns `country`, `cap_gw`; `scripts/update_ground_pv_potential.py`): utility and tracking PV (existing and new) capped at `cap_gw` at every horizon. Empty: PyPSA-Eur's per-node potential only."
+        },
+        "rooftop_pv_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rooftop PV technical potential per country [GW] (columns `country`, `gw`; JRC 2026 building-level data, `scripts/update_rooftop_pv_potential.py`): replaces PyPSA-Eur's 2 kW per inhabitant; each country's total is spread over its regions by population. Applies even when `enable` is false. Countries missing from the file keep 2 kW per inhabitant. Empty: PyPSA-Eur's rule."
+        },
+        "rooftop_pv_share": {
+          "default": 1.0,
+          "description": "Share of the technical potential of `rooftop_pv_file` used as the cap (1: all roofs; lower: deployable share, e.g. weak roofs, heritage, grid).",
+          "type": "number"
+        },
+        "planned_until": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 2030,
+          "description": "Horizons up to this year are capped at the planned capacity (empty: never)."
         }
       }
     },
@@ -16616,6 +16954,155 @@
         }
       }
     },
+    "co2_storage": {
+      "description": "Geological CO2 storage per country from injection projects (T32).",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Cap the CO2 sequestered per country and year at the injection capacity of its storage projects (`projects_file`), all build years of the `co2 sequestered` stores together. Replaces the CO2StoP limits per node (`sector.regional_co2_sequestration_potential`); the total over all countries (`sector.co2_sequestration_potential`) still applies. Needs `co2_spatial`.",
+          "type": "boolean"
+        },
+        "projects_file": {
+          "default": "data/co2_storage_projects.csv",
+          "description": "European storage projects from the IEA CCUS Projects Database (`scripts/update_co2_storage_projects.py`).",
+          "type": "string"
+        },
+        "built_only_until": {
+          "default": 2030,
+          "description": "Up to this horizon only projects in operation or under construction count (FID taken); after it, planned projects count from their operation year.",
+          "type": "integer"
+        },
+        "undated_from": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 2040,
+          "description": "Planned projects without an operation year count from this horizon (empty: never)."
+        }
+      }
+    },
+    "network_costs": {
+      "description": "One discount rate for all regulated network assets (central parameter).",
+      "properties": {
+        "discount_rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Real discount rate of the network assets in `technologies` (regulated cost of capital), replacing their `discount rate` before the annuity is computed. None: technology-data / `costs.fill_values`."
+        },
+        "technologies": {
+          "description": "Cost-table technologies financed as regulated networks.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      }
+    },
+    "distribution_grid": {
+      "description": "Which loads use the distribution grid, and the cost of hosting rooftop PV.",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Apply `industry_hv_share` and `pv_hosting_cost` (needs `sector.electricity_distribution_grid`).",
+          "type": "boolean"
+        },
+        "industry_hv_share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            }
+          ],
+          "default": 0.0,
+          "description": "Share of `industry electricity` connected at transmission level, left on the transmission bus instead of the low-voltage bus; one number or {country: share} (missing countries: key `default`, else 0)."
+        },
+        "pv_hosting_cost": {
+          "default": 0.0,
+          "description": "Distribution reinforcement caused by rooftop PV [EUR/kWp], added to the rooftop PV capital cost at the annuity (discount rate, lifetime, FOM) of the `electricity distribution grid`.",
+          "type": "number"
+        }
+      }
+    },
+    "ev_flexibility": {
+      "description": "Electric-car flexibility after Elia AdeqFlex 2025 (T16).",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Only the market share of the EV fleet is flexible; the rest of the EV load follows Elia's charging curves on the electricity bus.",
+          "type": "boolean"
+        },
+        "market_share": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Share of the EV fleet and EV demand steered by the system (Elia V1M + V2M); replaces `sector.bev_dsm_availability`.",
+          "type": "object"
+        },
+        "avail_max": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Maximum plugged-in share of EVs (Elia); replaces `sector.bev_avail_max`.",
+          "type": "object"
+        },
+        "avail_mean": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Mean plugged-in share (Elia); replaces `sector.bev_avail_mean`.",
+          "type": "object"
+        },
+        "avail_min": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Floor of the plugged-in share (Elia).",
+          "type": "object"
+        },
+        "charging_weights": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object"
+          },
+          "description": "Weights of Elia's daily charging curves for the inflexible EV load (natural V0 vs local V1H/V2H home and work), renormalised over the non-market share; must sum to 1 per horizon.",
+          "type": "object"
+        },
+        "charging_profile_file": {
+          "default": "data/ev_charging/elia_charging_daily_profiles_local.csv",
+          "description": "Elia's daily charging curves in local time (2026 and 2036 vintages).",
+          "type": "string"
+        },
+        "bev_energy": {
+          "default": 0.06,
+          "description": "Battery per EV [MWh] (Elia: 60 kWh); replaces `sector.bev_energy`.",
+          "type": "number"
+        },
+        "v2g": {
+          "default": false,
+          "description": "Vehicle-to-grid (Elia's V2M is not modelled).",
+          "type": "boolean"
+        }
+      }
+    },
     "import_limits": {
       "description": "Caps on gross imports per fuel, summed over all modelled countries.",
       "properties": {
@@ -16658,12 +17145,73 @@
           "description": "Fuel \u2192 cap on domestic production [TWh/a], whole region (fuels: gas, oil, coal). Adds a domestic generator for oil and coal (PyPSA-Eur has none: without it all their supply counts as import); lignite counts as coal.",
           "type": "object"
         },
+        "transit_penalty": {
+          "default": 0.01,
+          "description": "Tie-break [EUR/MWh] on fuel flows between the PatEx region and a modelled non-PatEx country (net flows into or out of the EU-wide pools; gas and H2 pipelines crossing that boundary). Trade costs the same as importing from abroad; without it the solver is indifferent and may route one side's imports through the other. Not a cost estimate.",
+          "type": "number"
+        },
         "bio_imports": {
           "description": "Add carbon-neutral imports of `biogas` (into the gas buses) and/or `bioliquids` (into the oil bus), priced like PyPSA-Eur's domestic biogas and bioliquids (technology-data `biogas` and `biodiesel crops` fuel costs).",
           "items": {
             "type": "string"
           },
           "type": "array"
+        }
+      }
+    },
+    "interconnection_limits": {
+      "description": "Cross-border transmission capacity per border (T30).",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Cap the usable capacity of each border (AC lines \u00d7 s_max_pu + DC links, existing and new) at factor[horizon] \u00d7 (usable capacity of PyPSA-Eur's grid + transfer-capacity increase of the TYNDP projects commissioned up to the horizon).",
+          "type": "boolean"
+        },
+        "projects_file": {
+          "default": "data/interconnection_projects_tyndp2024.csv",
+          "description": "TYNDP 2024 transmission projects per border (`scripts/update_interconnection_projects.py`).",
+          "type": "string"
+        },
+        "project_statuses": {
+          "description": "TYNDP status IDs counted: 1 under consideration, 2 in planning, 3 in permitting, 4 under construction.",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "in_grid_until": {
+          "default": 2025,
+          "description": "Projects commissioned up to this year are taken as already in PyPSA-Eur's grid (OSM data) and not added.",
+          "type": "integer"
+        },
+        "direction": {
+          "default": "max",
+          "description": "How the two directions of a project's transfer-capacity increase become one value (PyPSA lines and links are symmetric).",
+          "enum": [
+            "max",
+            "min",
+            "mean"
+          ],
+          "type": "string"
+        },
+        "factor": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Cap multiplier per planning horizon (a horizon without an entry takes the latest earlier one).",
+          "type": "object"
+        },
+        "ntc_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "data/interconnection_ntc_2030.csv",
+          "description": "TYNDP 2026 reference-grid NTC 2030, logged next to each cap for comparison only (empty: no comparison)."
         }
       }
     },
@@ -16748,6 +17296,15 @@
           },
           "type": "array"
         },
+        "fallback_demand": {
+          "default": "pypsa",
+          "description": "Demand of the modelled `fallback_countries`: `pypsa` = PyPSA-Eur's own pathways; `eu_trend` = the country's own base-year data (PyPSA-Eur energy totals; Eurostat and UNFCCC relative to the PatEx countries for industry) on the relative trend of the sum over the PatEx countries, fuel shares following the EU's relative change (patex_pypsa.fallback; user, 2026-11-12). Their rows are added to the PatEx tables, so every soft-link hook applies to them; import caps and CO2 storage still treat them as fallback countries.",
+          "enum": [
+            "pypsa",
+            "eu_trend"
+          ],
+          "type": "string"
+        },
         "energy_totals": {
           "default": true,
           "description": "Override buildings, transport and agriculture annual totals per country.",
@@ -16768,20 +17325,139 @@
           "description": "District heating share of heat demand per country from PatEx.",
           "type": "boolean"
         },
+        "heating_efficiencies": {
+          "default": true,
+          "description": "Final-to-useful building heat conversion of the PatEx countries with PatEx's own efficiencies (bundle `total {sector} {use} efficiency` = PatEx useful heat / final heat, technology mix of the horizon; audit #4) instead of `heating_efficiencies.csv` (today's mix): heat demand = PatEx's useful heat. The bundle's district heat share is on this useful heat. Fallback countries keep PyPSA-Eur's efficiencies.",
+          "type": "boolean"
+        },
         "base_load": {
           "default": true,
           "description": "Rescale the residual electricity load per country to the PatEx value.",
           "type": "boolean"
+        },
+        "cooling": {
+          "default": false,
+          "description": "PatEx's electric space cooling (bundle `electricity {residential,services} space cooling`) as its own load per node, with the Hotmaps residential and tertiary cooling profiles applied to the weather year, instead of inside the rescaled base load; today's electric cooling (JRC-IDEES, weather year) is taken out of the measured load with the same profiles (audit #5b). Fallback countries keep cooling in their base load. Needs `base_load`.",
+          "type": "boolean"
+        },
+        "gb_load_dukes": {
+          "default": false,
+          "description": "Scale Great Britain's measured load of the weather year to DUKES 'Electricity available' (UK consumption + losses, DUKES 5.1.2, `data/dukes_electricity_available.csv`): upstream's NESO National Demand excludes embedded wind and solar (2013: -13 %, 2023: -25 %). Hourly shape kept.",
+          "type": "boolean"
+        },
+        "temperature_shift": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Uniform shift [\u00b0C] added, per planning horizon, to the weather year's outdoor temperature for the heat demand profile, the cooling profiles (`patex.cooling`), heat-pump COPs (air and ground sources) and district heating forward temperatures: the climate trend between the weather year and the horizon (audit #5b; user, 2026-11-16: weather year 2023, +0.3 \u00b0C in 2030, +0.7 \u00b0C in 2040, 0.4 \u00b0C per decade). Annual totals are unchanged (PatEx's); what today's measured load holds (electric heating, today's cooling) keeps the unshifted profiles. Horizons not listed: no shift.",
+          "type": "object"
+        },
+        "phev_fleet_factor": {
+          "default": 0.0,
+          "description": "Weight of a plug-in hybrid in the EV fleet that sizes chargers and EV batteries (PatEx `number bev` + factor \u00d7 `number phev`; T16: 0, PHEVs count as combustion cars, their electric km stay in the load).",
+          "type": "number"
         },
         "import_limits": {
           "default": true,
           "description": "With `import_limits.enable`: caps on gross imports per fuel = PatEx imports summed over the modelled countries (replace `import_limits.limits`).",
           "type": "boolean"
         },
+        "fallback_import_caps": {
+          "default": "eu_per_capita",
+          "description": "Import caps of the modelled countries without PatEx data (GB, NO, CH...), per fuel: `eu_per_capita` = EU import cap per person (PatEx caps of every country of the bundle / their population, JRC ARDECO) x the country's population (user, 2026-11-10); `eurostat` = its own Eurostat imports today.",
+          "enum": [
+            "eu_per_capita",
+            "eurostat"
+          ],
+          "type": "string"
+        },
+        "co2_sequestration": {
+          "default": true,
+          "description": "Total CO2 sequestration cap of each horizon = PatEx's CO2 stored summed over the modelled countries (replaces `sector.co2_sequestration_potential`; T32). Fallback countries have no PatEx figure and share it.",
+          "type": "boolean"
+        },
         "plastics_eol_co2": {
           "default": false,
           "description": "CO2 of plastics (HVC) that are not burned for energy. False = PatEx / inventory convention: only waste-to-energy plants emit (`industry: waste_to_energy`); True = PyPSA-Eur default, all of it goes to the air.",
           "type": "boolean"
+        },
+        "waste_to_energy": {
+          "default": false,
+          "description": "Plastics end of life as in PatEx and the 1990 inventory (audit #2): the non-renewable waste PatEx burns in power and heat plants (bundle `waste to energy fuel` / `co2`) must be burned in waste CHPs within the year, at PatEx's CO2 factor; the rest of the naphtha carbon stays in products (no `HVC to air`). Needs `industry: waste_to_energy` and `plastics_eol_co2: false`.",
+          "type": "boolean"
+        }
+      }
+    },
+    "renewable_limits": {
+      "description": "Capacity limits per country for wind and solar (T31).",
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Offshore wind per country capped at its goal (`offshore_goals_file`) at every horizon, instead of PyPSA-Eur's per-node potential; up to `planned_until`, onshore wind, offshore wind and solar capped at the capacity planned for that year. Caps count existing and new capacity.",
+          "type": "boolean"
+        },
+        "offshore_goals_file": {
+          "default": "data/offshore_wind_goals.csv",
+          "description": "Offshore wind goals per country [GW] for 2030, 2040, 2050 (columns `gw_<year>`): Member States' non-binding TEN-E goals of January 2023, read in ENTSO-E's ONDP 2024 sea-basin reports.",
+          "type": "string"
+        },
+        "offshore_goal_year": {
+          "default": 2050,
+          "description": "Goal used as the offshore ceiling at every horizon after `planned_until`.",
+          "type": "integer"
+        },
+        "planned_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Planned capacity per country [GW] at `planned_until`: columns `country`, `onwind`, `offwind`, `solar` (TYNDP 2026 National Trends+, `scripts/update_renewables_planned.py`); an empty cell: no cap (offshore: the `gw_<planned_until>` goal). Empty: offshore goal only."
+        },
+        "ground_pv_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ground-mounted PV potential per country [GW] (columns `country`, `cap_gw`; `scripts/update_ground_pv_potential.py`): utility and tracking PV (existing and new) capped at `cap_gw` at every horizon. Empty: PyPSA-Eur's per-node potential only."
+        },
+        "rooftop_pv_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rooftop PV technical potential per country [GW] (columns `country`, `gw`; JRC 2026 building-level data, `scripts/update_rooftop_pv_potential.py`): replaces PyPSA-Eur's 2 kW per inhabitant; each country's total is spread over its regions by population. Applies even when `enable` is false. Countries missing from the file keep 2 kW per inhabitant. Empty: PyPSA-Eur's rule."
+        },
+        "rooftop_pv_share": {
+          "default": 1.0,
+          "description": "Share of the technical potential of `rooftop_pv_file` used as the cap (1: all roofs; lower: deployable share, e.g. weak roofs, heritage, grid).",
+          "type": "number"
+        },
+        "planned_until": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 2030,
+          "description": "Horizons up to this year are capped at the planned capacity (empty: never)."
         }
       }
     }

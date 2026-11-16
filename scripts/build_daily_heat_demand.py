@@ -64,9 +64,13 @@ if __name__ == "__main__":
     stacked_pop = pop_layout.stack(spatial=("y", "x"))
     M = I.T.dot(np.diag(I.dot(stacked_pop)))
 
+    # PatEx soft-link (patex.temperature_shift, rule build_daily_heat_demand_horizon):
+    # outdoor temperature + shift, i.e. atlite's heat-demand threshold (15 °C) - shift
+    temperature_shift = float(getattr(snakemake.params, "temperature_shift", 0.0))
     heat_demand = cutout.heat_demand(
         matrix=M.T,
         index=clustered_regions.index,
+        threshold=15.0 - temperature_shift,
         dask_kwargs=dask_kwargs,
         show_progress=False,
     ).sel(time=daily)

@@ -554,7 +554,11 @@ def prepare_network(
         if limit_max_growth is not None and limit_max_growth["enable"]:
             add_max_growth(n, limit_max_growth)
 
-    if n.stores.carrier.eq("co2 sequestered").any():
+    # PatEx soft-link (T32): the total cap may already be in the network (PatEx value)
+    if (
+        n.stores.carrier.eq("co2 sequestered").any()
+        and "co2_sequestration_limit" not in n.global_constraints.index
+    ):
         limit_dict = co2_sequestration_potential
         add_co2_sequestration_limit(
             n, limit_dict=limit_dict, planning_horizons=planning_horizons
@@ -1198,34 +1202,138 @@ def add_import_limit_constraint(n: pypsa.Network, sns: pd.DatetimeIndex):
     n.model.add_constraints(lhs, limit_sense, rhs, name="import_limit")
 
 
+def pool_net_flow(n: pypsa.Network, sns: pd.DatetimeIndex, pool: str, country: str):
+    """
+    Annual net flow of ``country`` into an EU-wide pool (MWh over the period): supply
+    of its located components into the pool buses (its own import and production
+    copies, its conversion links, e.g. Fischer-Tropsch) minus what its located
+    components draw (boilers, transport, industry...). None if nothing is located there.
+    """
+    from scripts.prepare_sector_network import component_countries, pool_buses
+
+    buses = set(pool_buses(n, pool))
+    w = n.snapshot_weightings.loc[sns, "generators"]
+    terms = []
+    gens = n.generators.index[n.generators.bus.isin(buses)]
+    gens = gens[component_countries(n, "Generator").reindex(gens).eq(country).values]
+    if len(gens):
+        terms.append((n.model["Generator-p"].loc[sns, gens] * w).sum())
+    ports = sorted(c for c in n.links if c.startswith("bus") and c[3:].isdigit())
+    where = component_countries(n, "Link")
+    for port in ports:
+        links = n.links.index[n.links[port].isin(buses) & where.eq(country).values]
+        if links.empty:
+            continue
+        if port == "bus0":
+            coeff = -1.0
+        else:
+            k = port[3:]
+            coeff = n.links.loc[links, "efficiency" if k == "1" else f"efficiency{k}"]
+        terms.append((n.model["Link-p"].loc[sns, links] * coeff * w).sum())
+    if not terms:
+        return None
+    total = terms[0]
+    for t in terms[1:]:
+        total = total + t
+    return total
+
+
 def add_supply_limits_per_fuel(n: pypsa.Network, sns: pd.DatetimeIndex) -> None:
     """
-    Cap gross imports and domestic production per fuel over the whole network
-    (``import_limits``).
+    Cap gross imports and domestic production per fuel (``import_limits``).
 
-    Reads the ``GlobalConstraint`` rows of type ``import_limit`` /
-    ``domestic_limit`` written by ``prepare_sector_network.add_supply_limits``
-    (carrier_attribute = fuel, constant in MWh over the modelled period) and sums
-    the components of that fuel (``IMPORT_FUELS`` / ``DOMESTIC_FUELS``):
-    generator dispatch, link output. Named ``GlobalConstraint-<name>`` so that
-    its dual is written to ``mu``.
+    Reads the ``GlobalConstraint`` rows of type ``import_limit`` / ``domestic_limit``
+    written by ``prepare_sector_network.add_supply_limits`` (``constant`` in MWh over
+    the modelled period) and sums the components of that fuel (``IMPORT_FUELS`` /
+    ``DOMESTIC_FUELS``): generator dispatch, link output. ``carrier_attribute``:
+
+    - "fuel": whole network;
+    - "fuel|EU:c1,c2,...": the PatEx region, its located components and the unlocated
+      (EU-wide) ones; "fuel|GB": one country outside it, its located components;
+    - imports also count what comes from outside the region: gross gas / H2 pipeline
+      inflow (``PIPELINES``) and, for fuels on an EU-wide pool (``POOL_FLOW_FUEL``), the
+      net annual flow of each outside country into the pool (EU) or out of it (that
+      country): auxiliary variables x ≥ net, y ≥ −net, x, y ≥ 0.
+
+    Named ``GlobalConstraint-<name>`` so that its dual is written to ``mu``.
     """
-    from scripts._import_limits_config import DOMESTIC_FUELS, IMPORT_FUELS
+    from scripts._import_limits_config import (
+        DOMESTIC_FUELS,
+        IMPORT_FUELS,
+        PIPELINES,
+        POOL_FLOW_FUEL,
+    )
+    from scripts.prepare_sector_network import component_countries
 
     fuels = {"import_limit": IMPORT_FUELS, "domestic_limit": DOMESTIC_FUELS}
     glcs = n.global_constraints[n.global_constraints.type.isin(list(fuels))]
     weightings = n.snapshot_weightings.loc[sns, "generators"]
+    bus_country = (
+        n.buses.location.replace("", np.nan)
+        .fillna(pd.Series(n.buses.index, n.buses.index))
+        .map(n.buses.country)
+    )
+    flow_pool = {f: p for p, f in POOL_FLOW_FUEL.items()}
+    penalty = n.config.get("import_limits", {}).get("transit_penalty", 0.0) if hasattr(
+        n, "config") else 0.0
+    outside = {
+        r.partition("|")[2]
+        for r in glcs.carrier_attribute
+        if "|" in r and not r.partition("|")[2].startswith("EU:")
+    }
+    pool_vars = {}
+
+    def pool_terms(pool: str, eu: bool, country: str | None):
+        """Σ x_c (EU region) or y_country (outside country), created once per pool."""
+        if pool not in pool_vars:
+            pool_vars[pool] = {}
+            for c in sorted(outside):
+                net = pool_net_flow(n, sns, pool, c)
+                if net is None:
+                    continue
+                x = n.model.add_variables(lower=0, name=f"pool-{pool}-{c}-to-EU")
+                y = n.model.add_variables(lower=0, name=f"pool-{pool}-EU-to-{c}")
+                n.model.add_constraints(x - net >= 0, name=f"pool-{pool}-{c}-export")
+                n.model.add_constraints(y + net >= 0, name=f"pool-{pool}-{c}-import")
+                if penalty:  # tie-break: each side imports for itself unless a cap binds
+                    n.model.objective = n.model.objective + penalty * (x + y)
+                pool_vars[pool][c] = (x, y)
+        if eu:
+            return [x for x, _ in pool_vars[pool].values()]
+        return [pool_vars[pool][country][1]] if country in pool_vars[pool] else []
+
     for name, glc in glcs.iterrows():
-        component, carriers = fuels[glc.type][glc.carrier_attribute]
+        fuel, _, region = glc.carrier_attribute.partition("|")
+        component, carriers = fuels[glc.type][fuel]
         static = n.static(component)
         index = static.index[static.carrier.isin(carriers)]
-        if index.empty:
-            logger.info(f"{name}: no import component, constraint skipped")
+        eu = region.startswith("EU:")
+        countries = set(region[3:].split(",")) if eu else {region}
+        if region:
+            where = component_countries(n, component, carriers).reindex(index)
+            keep = where.isin(countries) | (where.isna() if eu else False)
+            index = index[keep.values]
+        terms = []
+        if not index.empty:
+            p = n.model[f"{component}-p"].loc[sns, index]
+            if component == "Link":
+                p = p * n.links.loc[index, "efficiency"]
+            terms.append((p * weightings).sum())
+        if region and glc.type == "import_limit" and fuel in PIPELINES:
+            pipes = n.links[n.links.carrier.isin(PIPELINES[fuel])]
+            c0, c1 = pipes.bus0.map(bus_country), pipes.bus1.map(bus_country)
+            inflow = pipes.index[~c0.isin(countries) & c0.notna() & c1.isin(countries)]
+            if not inflow.empty:
+                p = n.model["Link-p"].loc[sns, inflow] * n.links.loc[inflow, "efficiency"]
+                terms.append((p * weightings).sum())
+        if region and glc.type == "import_limit" and fuel in flow_pool:
+            terms += pool_terms(flow_pool[fuel], eu, None if eu else region)
+        if not terms:
+            logger.info(f"{name}: no component, constraint skipped")
             continue
-        p = n.model[f"{component}-p"].loc[sns, index]
-        if component == "Link":
-            p = p * n.links.loc[index, "efficiency"]
-        lhs = (p * weightings).sum()
+        lhs = terms[0]
+        for t in terms[1:]:
+            lhs = lhs + t
         n.model.add_constraints(
             lhs, glc.sense, glc.constant, name=f"GlobalConstraint-{name}"
         )
@@ -1324,6 +1432,36 @@ def extra_functionality(
 
     if n.global_constraints.type.isin(["import_limit", "domestic_limit"]).any():
         add_supply_limits_per_fuel(n, snapshots)
+
+    # cross-border capacity per border (interconnection_limits, T30)
+    from scripts._interconnection_limits import (
+        LIMIT_TYPE as NTC_LIMIT,
+        add_interconnection_constraints,
+    )
+
+    if n.global_constraints.type.eq(NTC_LIMIT).any():
+        if n._multi_invest:
+            raise NotImplementedError("interconnection_limits: not with perfect foresight")
+        add_interconnection_constraints(n)
+
+    # wind and solar caps per country (renewable_limits, T31)
+    from scripts._renewable_limits import (
+        LIMIT_TYPE as RES_LIMIT,
+        add_renewable_limit_constraints,
+    )
+
+    if n.global_constraints.type.eq(RES_LIMIT).any():
+        if n._multi_invest:
+            raise NotImplementedError("renewable_limits: not with perfect foresight")
+        add_renewable_limit_constraints(n)
+
+    # geological CO2 storage per country (co2_storage, T32)
+    from scripts._co2_storage import LIMIT_TYPE, add_co2_storage_constraints
+
+    if n.global_constraints.type.eq(LIMIT_TYPE).any():
+        if n._multi_invest:
+            raise NotImplementedError("co2_storage: not with perfect foresight")
+        add_co2_storage_constraints(n, snapshots)
 
     if n.params.custom_extra_functionality:
         source_path = n.params.custom_extra_functionality

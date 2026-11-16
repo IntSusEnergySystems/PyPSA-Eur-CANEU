@@ -13,17 +13,34 @@ patex:
   coupling_dir: ../PATEX2PYPSA/runs/pac2   # contains pypsa_inputs/
   # Not in PatEx (dataset 47.x.4): keep the PyPSA-Eur preprocessed demands.
   fallback_countries: [AL, BA, CH, GB, ME, MK, "NO", RS, XK]  # "NO": YAML reads NO as false
+  # Their demand: own 2023 data on the relative trend of the PatEx countries (user,
+  # 2026-11-12; docs/energy.md "Countries outside PatEx"), not PyPSA-Eur's pathways.
+  fallback_demand: eu_trend
   energy_totals: true
   industry: true          # carriers, feedstock gas and process emissions
   co2_intensity: true     # gas / oil / coal CO2 intensity from PatEx's factors
   district_heating: true  # district heating share per country
   base_load: true
-  # PatEx convention: plastics end-of-life emit CO2 only when burned in waste CHPs
-  # (talking point with Climact / CAN).
+  # GB load of the weather year scaled to DUKES "electricity available" (NESO's National
+  # Demand excludes embedded wind and solar; user, 2026-11-16)
+  gb_load_dukes: true
+  # PatEx electric cooling as its own load (cooling-degree-hour profile), today's cooling
+  # (JRC-IDEES) out of the measured load (audit #5b, user 2026-11-16)
+  cooling: true
+  # PatEx / inventory convention (audit #2, user 2026-11-16): naphtha carbon stays in
+  # products; PatEx's non-renewable waste-to-energy is burned in waste CHPs (must burn).
   plastics_eol_co2: false
+  waste_to_energy: true
 
 industry:
-  waste_to_energy: true   # waste CHPs burn non-recycled plastics (CO2 counted)
+  waste_to_energy: true   # waste CHPs (needed by patex.waste_to_energy)
+
+# EV flexibility (T16): Elia AdeqFlex 2025 "Current commitments" (defaults of the
+# section): only the market share of the EV fleet is flexible (7 % in 2030, 18 % from
+# 2040), the rest charges on Elia's curves; Elia plugged-in availability, 60 kWh, no V2G.
+# PHEVs not counted in the fleet (patex.phev_fleet_factor: 0, default).
+ev_flexibility:
+  enable: true
 
 # Nuclear (T34): one link per reactor from data/nuclear_fleet.csv (official sources),
 # no duplicate generators; one 10-year extension (model's choice, at fixed O&M cost)
@@ -35,13 +52,92 @@ nuclear_fleet:
   default_lifetime: 50
   must_run_margin: 0.10
 
+# Geological CO2 storage (T32): CO2 sequestered per country and year capped at the
+# injection capacity of its storage projects (IEA CCUS Projects Database,
+# data/co2_storage_projects.csv): in operation or under construction up to 2030,
+# planned projects from their operation year after it, undated ones from 2040. Replaces
+# the CO2StoP limits per node. Total over all countries: PatEx's CO2 stored
+# (patex.co2_sequestration, default true). Reasons: docs/co2_storage.md.
+co2_storage:
+  enable: true
+
+# Cross-border capacity per border (T30, user 2026-11-09), in usable physical capacity
+# (AC x s_max_pu + DC, existing and new): <= factor x (PyPSA-Eur's grid + TYNDP 2024
+# transfer-capacity increase of the projects commissioned 2026..horizon). NTCs logged only.
+interconnection_limits:
+  enable: true
+  factor:
+    2030: 1.0
+    2035: 1.5
+    2040: 1.5
+    2045: 1.5
+    2050: 1.5
+
+# Wind and solar caps per country (T31, user 2026-11-09): offshore wind at each
+# country's offshore goal (TEN-E, January 2023) at every horizon, instead of PyPSA-Eur's
+# 2 MW/km2 potential; 2030 capped at the capacity planned for 2030 (TYNDP 2026 National
+# Trends+, final NECPs); after 2030 PyPSA-Eur's potentials, no build rate.
+# Ground-mounted PV (utility + tracking) per country at every horizon (user,
+# 2026-11-10, rules 2026-11-12): national share of farmland outside protected areas
+# and HNV farmland (1 ha/MW) + brownfield and corridors; no natural land
+# (scripts/update_ground_pv_potential.py; reasons in fork docs/energy.md).
+# Rooftop PV: 50 % of the technical potential of JRC 2026 (building level) per
+# country, GB and NO from ENSPRESO / Multiconsult (user, 2026-11-12;
+# scripts/update_rooftop_pv_potential.py).
+renewable_limits:
+  enable: true
+  planned_file: data/renewables_planned_2030.csv
+  ground_pv_file: data/ground_pv_potential.csv
+  rooftop_pv_file: data/rooftop_pv_potential.csv
+  rooftop_pv_share: 0.5
+
 # Gross imports per fuel capped at PatEx's, summed over the modelled countries
 # (patex.import_limits); biogas and bioliquids imports added for that.
 import_limits:
   enable: true
   bio_imports: [biogas, bioliquids]
 
+# Network costs (user, 2026-11-10; method and sources: fork docs/energy.md "Network
+# costs"). Regulated network assets (distribution, transmission, offshore wind grid
+# connections, pipelines; list in `network_costs.technologies`) at one regulated real
+# discount rate instead of the 7 % default: change it here only.
+network_costs:
+  discount_rate: 0.04  # real; range 0.03-0.05 (sensitivity: null = 7 % default)
+
+# Distribution grid at a unit cost calibrated on DSO transition capex.
+costs:
+  overwrites:
+    investment:
+      electricity distribution grid: 620000  # EUR/MW of LV peak (range 410000-960000)
+
+
+# Distribution grid refinements (fork `distribution_grid`): industry connected at
+# transmission level off the LV bus (share of `industry electricity` from Eurostat
+# nrg_pc_205_v 2023, consumers >= 70 GWh/a over industry electricity; IE, LU, GB: median
+# of the others), and the LV reinforcement caused by rooftop PV.
+distribution_grid:
+  enable: true
+  industry_hv_share:
+    BE: 0.64
+    DE: 0.47
+    DK: 0.62
+    FR: 0.53
+    NL: 0.55
+    "NO": 0.89
+    default: 0.58
+  pv_hosting_cost: 120  # EUR/kWp (range 0-250)
+
 sector:
+  # Demand drawing from the EU-wide fuel pools located per node, so that the net flow of a
+  # non-PatEx country (GB, NO, CH...) into or out of a pool can be counted in the import
+  # caps (import_limits, user 2026-11-09). Supply stays on the EU-wide pools.
+  regional_coal_demand: true
+  # No direct air capture in the scenario (user, 2026-11-16): removals only by capturing
+  # biogenic CO2 (BECCS). docs/energy.md, "CO2 budget".
+  dac: false
+  methanol:
+    regional_methanol_demand: true
+  ammonia: regional
   # Imports (T29): PyPSA-Eur's import options on, so that every fuel PatEx imports
   # can be imported; caps from PatEx (`import_limits` above). Prices: upstream's.
   imports:
@@ -67,9 +163,11 @@ plotting:
   tech_colors:
     gas feedstock for industry: "#a0522d"  # PatEx soft-link: feedstock gas load
     land transport gas: "#a35d2c"
+    land transport EV inflexible: "#9fc4e8"  # EV charging outside the market share (T16)
     oil for industry: "#7d6b4f"  # PatEx soft-link: oil burnt in industry (T24)
     rail electricity: "#7ab33a"
     aviation electricity: "#5fa3c7"
+    electricity cooling: "#6fc7d9"  # PatEx soft-link: electric space cooling (audit #5b)
     shipping electricity: "#4f7fa8"
     H2 for rail: "#8b4f7d"
     gas for cooking: "#c27c4e"  # PatEx soft-link: non-electric cooking (T18)

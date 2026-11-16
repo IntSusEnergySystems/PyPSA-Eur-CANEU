@@ -139,7 +139,64 @@ def find_physical_output(df):
     return slice(start, end)
 
 
+def eurostat_industry_year(eurostat, country, year):
+    """Year of the Eurostat industry balance used for ``country``: ``year`` if it has
+    data, else the latest earlier year with data (else the earliest later one).
+
+    Eurostat stops reporting some countries (GB after 2019) but keeps their rows with
+    zeros: without this, their industrial production silently becomes zero (2026-11-12).
+    """
+    totals = (
+        eurostat.query(
+            "country == @country and siec == 'TOTAL' and nrg_bal in @eb_sectors.keys()"
+        )
+        .groupby("year")
+        .value.sum()
+    )
+    totals = totals[totals > 0]
+    if totals.empty:
+        raise ValueError(f"Eurostat energy balances: no industry data for {country}")
+    if year in totals.index:
+        return year
+    earlier = totals.index[totals.index <= year]
+    fallback = int(earlier.max() if len(earlier) else totals.index.min())
+    logger.warning(
+        f"Eurostat has no industry balance for {country} in {year}: the scaling of "
+        f"EU27 production uses {fallback} (country and EU27 energy of that year)"
+    )
+    return fallback
+
+
+def align_sector_labels(e_eu27: pd.Series) -> pd.Series:
+    """JRC-IDEES sector totals relabelled to the Eurostat names of ``eb_sectors``
+    (case, hyphens and spaces ignored: JRC-IDEES 2023 writes "Non-ferrous metals",
+    Eurostat "Non Ferrous Metals"). Raise if a Eurostat sector has no JRC match, which
+    would silently zero the production of non-EU countries in that sector."""
+
+    def key(label):
+        return "".join(ch for ch in str(label).lower() if ch.isalnum())
+
+    by_key = {key(name): name for name in eb_sectors.values()}
+    out = e_eu27.rename(index=lambda label: by_key.get(key(label), label))
+    missing = sorted(set(eb_sectors.values()) - set(out.index))
+    if missing:
+        raise ValueError(f"JRC-IDEES Ind_Summary: no sector total for {missing}")
+    return out
+
+
+def check_industry_present(demand, ignore=("Ammonia",)):
+    """Raise if a country has no industrial production (other than ``ignore``)."""
+    rest = demand.drop(columns=[c for c in ignore if c in demand.columns])
+    empty = rest.index[rest.fillna(0.0).sum(axis=1) <= 0].tolist()
+    if empty:
+        raise ValueError(
+            f"No industrial production for {empty}: missing source data (Eurostat or "
+            "JRC-IDEES) for the reference year?"
+        )
+
+
 def get_energy_ratio(country, eurostat, jrc_dir, year, snakemake):
+    data_year = year
     if country == "CH":
         # data ranges between 2014-2023
         e_country = pd.read_csv(
@@ -150,9 +207,10 @@ def get_energy_ratio(country, eurostat, jrc_dir, year, snakemake):
         e_country *= tj_to_ktoe
     else:
         # estimate physical output, energy consumption in the sector and country
+        data_year = eurostat_industry_year(eurostat, country, year)
         e_country = (
             eurostat.query(
-                "year == @year and country == @country and "
+                "year == @data_year and country == @country and "
                 "siec == 'TOTAL' and nrg_bal in @eb_sectors.keys()"
             )
             .set_index("nrg_bal")
@@ -173,9 +231,10 @@ def get_energy_ratio(country, eurostat, jrc_dir, year, snakemake):
         )
 
     assert df.index[49] == "by sector"
-    year_i = df.columns.get_loc(year)
+    year_i = df.columns.get_loc(data_year)
     e_eu27 = df.iloc[50:77, year_i]
     e_eu27.index = e_eu27.index.str.lstrip()
+    e_eu27 = align_sector_labels(e_eu27)
 
     e_ratio = e_country / e_eu27
 
@@ -313,6 +372,8 @@ if __name__ == "__main__":
     separate_basic_chemicals(demand, year)
 
     demand.fillna(0.0, inplace=True)
+
+    check_industry_present(demand)
 
     fn = snakemake.output.industrial_production_per_country
     demand.to_csv(fn, float_format="%.2f")

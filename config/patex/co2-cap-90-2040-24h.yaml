@@ -1,0 +1,30 @@
+# CO2 cap: -50 % of 1990 in 2030 (as co2-cap-50-24h), -90 % in 2040 (user, 2026-11-10),
+# kept at -90 % in 2050 so that the cap does not loosen after 2040 (relative, CO2 only;
+# baseline: fork docs/energy.md, T11). Daily resolution. Add last, after the region:
+#   --configfile config/config.patex.yaml config/patex/levers2-nwe-bz.yaml \
+#                config/patex/co2-cap-90-2040-24h.yaml
+
+run:
+  name: patex-levers2-nwe-bz-co2-90-2040-24h
+
+co2_budget:
+  relative: true
+  upper:
+    2020: 0.5
+    2025: 0.5
+    2030: 0.5
+    2035: 0.3
+    2040: 0.1
+    2045: 0.1
+    2050: 0.1
+
+clustering:
+  temporal:
+    averaging: 24h
+
+solving:
+  # sized for a 4-core nic6 job (NWE 24h, cap 50 %: MaxRSS 4.4 GB on 8 cores)
+  mem_mb: 7000
+  solver_options:
+    gurobi-default:
+      threads: 4

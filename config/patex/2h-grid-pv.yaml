@@ -1,0 +1,19 @@
+# NW Europe, CO2 -90 % 2040, 2-hourly, with the network costs and the ground-mounted PV
+# potential of 2026-11-10 (both in config.patex.yaml; PV other land at PyPSA-Eur's
+# rule). Add last:
+#   --configfile config/config.patex.yaml config/patex/levers2-nwe-bz.yaml \
+#                config/patex/co2-cap-90-2040-24h.yaml config/patex/2h-grid-pv.yaml
+
+run:
+  name: patex-levers2-nwe-bz-co2-90-2040-2h-grid-pv
+
+clustering:
+  temporal:
+    averaging: 2h
+
+solving:
+  # sized for a 36-core nic6 job (3h: MaxRSS 40.3 GB; 2h has 1.5x the snapshots)
+  mem_mb: 64000
+  solver_options:
+    gurobi-default:
+      threads: 32

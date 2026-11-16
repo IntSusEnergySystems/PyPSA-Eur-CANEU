@@ -53,6 +53,42 @@ def get_compose_inputs(w):
         nuclear_fleet=(
             cfg["nuclear_fleet"]["fleet_file"] if cfg["nuclear_fleet"]["enable"] else []
         ),
+        interconnection_projects=(
+            cfg["interconnection_limits"]["projects_file"]
+            if cfg["interconnection_limits"]["enable"]
+            else []
+        ),
+        interconnection_ntc=(
+            cfg["interconnection_limits"]["ntc_file"]
+            if cfg["interconnection_limits"]["enable"]
+            and cfg["interconnection_limits"]["ntc_file"]
+            else []
+        ),
+        offshore_wind_goals=(
+            cfg["renewable_limits"]["offshore_goals_file"]
+            if cfg["renewable_limits"]["enable"]
+            else []
+        ),
+        renewables_planned=(
+            cfg["renewable_limits"]["planned_file"]
+            if cfg["renewable_limits"]["enable"]
+            and cfg["renewable_limits"]["planned_file"]
+            else []
+        ),
+        ground_pv=(
+            cfg["renewable_limits"]["ground_pv_file"]
+            if cfg["renewable_limits"]["enable"]
+            and cfg["renewable_limits"]["ground_pv_file"]
+            else []
+        ),
+        co2_storage_projects=(
+            cfg["co2_storage"]["projects_file"] if cfg["co2_storage"]["enable"] else []
+        ),
+        ev_charging_profiles=(
+            cfg["ev_flexibility"]["charging_profile_file"]
+            if cfg["ev_flexibility"]["enable"]
+            else []
+        ),
         eurostat=(
             resources("eurostat_energy_balances.csv")
             if cfg["co2_budget"]["relative"]
@@ -62,6 +98,16 @@ def get_compose_inputs(w):
                 and cfg["patex"]["enable"]
                 and cfg["patex"]["import_limits"]
             )
+            else []
+        ),
+        # PatEx import limits: population of the EU and of the non-PatEx countries
+        # (their import caps = EU import cap per person x population)
+        population=(
+            rules.retrieve_jrc_ardeco.output["ardeco_pop"]
+            if cfg["import_limits"]["enable"]
+            and cfg["patex"]["enable"]
+            and cfg["patex"]["import_limits"]
+            and cfg["patex"]["fallback_import_caps"] == "eu_per_capita"
             else []
         ),
         co2=(
@@ -189,6 +235,22 @@ def get_compose_inputs(w):
         if cfg["patex"]["enable"]:
             for name in ("energy_totals", "parameters", "co2_intensity", "supply"):
                 sector_inputs[f"patex_{name}"] = resources(f"patex_{name}_{{horizon}}.csv")
+            if cfg["patex"]["cooling"]:
+                sector_inputs["patex_cooling_profile"] = resources(
+                    "patex_cooling_profile.nc"
+                )
+                sector_inputs["patex_cooling_today"] = resources(
+                    "patex_cooling_today.csv"
+                )
+            if cfg["patex"]["temperature_shift"].get(int(horizon), 0.0):
+                # horizon's climate: shifted heat demand and cooling profiles
+                sector_inputs["hourly_heat_demand_horizon"] = resources(
+                    "hourly_heat_demand_total_{horizon}.nc"
+                )
+                if cfg["patex"]["cooling"]:
+                    sector_inputs["patex_cooling_profile_horizon"] = resources(
+                        "patex_cooling_profile_{horizon}.nc"
+                    )
         inputs.update(sector_inputs)
 
     # Add brownfield inputs for non-first horizons
@@ -290,6 +352,11 @@ rule compose_network:
         adjustments=config_provider("adjustments"),
         patex=config_provider("patex"),
         import_limits=config_provider("import_limits"),
+        distribution_grid=config_provider("distribution_grid"),
+        co2_storage=config_provider("co2_storage"),
+        renewable_limits=config_provider("renewable_limits"),
+        interconnection_limits=config_provider("interconnection_limits"),
+        ev_flexibility=config_provider("ev_flexibility"),
         nuclear_fleet=config_provider("nuclear_fleet"),
     script:
         scripts("compose_network.py")

@@ -1,0 +1,25 @@
+# Run name: as 24h-audit (audit #1-#5b, Hotmaps cooling, DAC off), with the 2023 weather
+# year (cutout europe-2023-sarah3-era5, ENTSO-E load 2023) and the climate trend from
+# 2023 to each horizon on heating, cooling and heat-pump temperatures
+# (patex.temperature_shift: 0.4 °C per decade, Copernicus ESOTC; user, 2026-11-16).
+# 2030 and 2040 only. Add last:
+#   --configfile config/config.patex.yaml config/patex/levers2-nwe-bz.yaml \
+#                config/patex/co2-cap-90-2040-24h.yaml config/patex/24h-2023-shift.yaml
+
+run:
+  name: patex-levers2-nwe-bz-co2-90-2040-24h-2023-shift
+
+planning_horizons: [2030, 2040]
+
+snapshots:
+  start: "2023-01-01"
+  end: "2024-01-01"
+  inclusive: left
+
+atlite:
+  default_cutout: europe-2023-sarah3-era5
+
+patex:
+  temperature_shift:
+    2030: 0.3
+    2040: 0.7

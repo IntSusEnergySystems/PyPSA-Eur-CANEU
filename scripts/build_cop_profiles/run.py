@@ -131,6 +131,13 @@ if __name__ == "__main__":
                 source_inlet_temperature_celsius = xr.open_dataarray(
                     snakemake.input[f"temp_{heat_source}"]
                 )
+                if heat_source in ("air", "ground"):
+                    # PatEx soft-link: horizon's temperature shift of outdoor air
+                    # and soil (patex.temperature_shift)
+                    source_inlet_temperature_celsius = (
+                        source_inlet_temperature_celsius
+                        + float(getattr(snakemake.params, "temperature_shift", 0.0))
+                    )
 
             cop_da = get_cop(
                 heat_system_type=heat_system_type,

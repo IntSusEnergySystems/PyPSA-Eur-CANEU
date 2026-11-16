@@ -243,7 +243,9 @@ if __name__ == "__main__":
     )
 
     central_heating_temperature_approximator = CentralHeatingTemperatureApproximator(
-        ambient_temperature=xr.open_dataarray(snakemake.input.temp_air_total),
+        # PatEx soft-link: horizon's temperature shift (patex.temperature_shift)
+        ambient_temperature=xr.open_dataarray(snakemake.input.temp_air_total)
+        + float(getattr(snakemake.params, "temperature_shift", 0.0)),
         max_forward_temperature=max_forward_temperature_central_heating_by_node_and_time,
         min_forward_temperature=min_forward_temperature_central_heating_by_node_and_time,
         fixed_return_temperature=return_temperature_central_heating_by_node_and_time,

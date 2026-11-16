@@ -422,6 +422,7 @@ def set_transmission_costs(
     costs: pd.DataFrame,
     line_length_factor: float = 1.0,
     link_length_factor: float = 1.0,
+    skip_reversed: bool = False,
 ) -> None:
     """
     Set the transmission costs for lines and links in the network.
@@ -436,6 +437,9 @@ def set_transmission_costs(
         Factor to scale the line length, by default 1.0.
     link_length_factor : float, optional
         Factor to scale the link length, by default 1.0.
+    skip_reversed : bool, optional
+        Leave the reversed twins of lossy bidirectional DC links at zero cost
+        (PyPSA-Eur-CANEU, on with ``patex.enable``), by default False.
     """
     n.lines["capital_cost"] = (
         n.lines["length"]
@@ -447,6 +451,13 @@ def set_transmission_costs(
         return
 
     dc_b = n.links.carrier == "DC"
+    if skip_reversed and "reversed" in n.links:
+        # PyPSA-Eur-CANEU (patex.enable): the zero-length "-reversed" twin of a
+        # lossy bidirectional DC link shares the forward leg's capacity; pricing it
+        # adds a second converter pair (seen in myopic horizons after the first).
+        reversed_b = n.links["reversed"].fillna(False).astype(bool)
+        n.links.loc[dc_b & reversed_b, "capital_cost"] = 0.0
+        dc_b = dc_b & ~reversed_b
 
     # If there are no dc links, then the 'underwater_fraction' column
     # may be missing. Therefore we have to return here.

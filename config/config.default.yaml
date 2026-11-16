@@ -1602,12 +1602,165 @@ overpass_api:
     email: "contact@pypsa.org"
     website: "https://github.com/PyPSA/pypsa-eur"
 
+# docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#co2_storage_cf
+co2_storage:
+  enable: false
+  projects_file: data/co2_storage_projects.csv
+  built_only_until: 2030
+  undated_from: 2040
+
+# docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#network_costs_cf
+network_costs:
+  discount_rate:
+  technologies:
+  - electricity distribution grid
+  - distribution grid reinforcement
+  - HVAC overhead
+  - HVAC underground
+  - HVAC submarine
+  - HVDC overhead
+  - HVDC underground
+  - HVDC submarine
+  - HVDC inverter pair
+  - "offwind-ac-connection-submarine"
+  - "offwind-ac-connection-underground"
+  - "offwind-ac-station"
+  - "offwind-dc-connection-submarine"
+  - "offwind-dc-connection-underground"
+  - "offwind-dc-station"
+  - "offwind-float-connection-submarine"
+  - "offwind-float-connection-underground"
+  - "offwind-float-station"
+  - CH4 (g) pipeline
+  - CH4 (g) submarine pipeline
+  - H2 (g) pipeline
+  - H2 (g) pipeline repurposed
+  - H2 (g) submarine pipeline
+  - H2 (g) submarine pipeline repurposed
+  - H2 pipeline
+  - CO2 pipeline
+  - CO2 submarine pipeline
+
+# docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#distribution_grid_cf
+distribution_grid:
+  enable: false
+  industry_hv_share: 0.0
+  pv_hosting_cost: 0.0
+
+# docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#ev_flexibility_cf
+ev_flexibility:
+  enable: false
+  market_share:
+    2020: 0.005
+    2025: 0.01
+    2030: 0.07
+    2035: 0.172
+    2040: 0.18
+    2045: 0.18
+    2050: 0.18
+  avail_max:
+    2020: 0.4
+    2025: 0.4
+    2030: 0.4
+    2035: 0.48
+    2040: 0.48
+    2045: 0.48
+    2050: 0.48
+  avail_mean:
+    2020: 0.32
+    2025: 0.32
+    2030: 0.32
+    2035: 0.35
+    2040: 0.35
+    2045: 0.35
+    2050: 0.35
+  avail_min:
+    2020: 0.2
+    2025: 0.2
+    2030: 0.2
+    2035: 0.18
+    2040: 0.18
+    2045: 0.18
+    2050: 0.18
+  charging_weights:
+    2020:
+      natural: 0.7388
+      sunny_PV: 0.0429
+      sunny_noPV: 0.0429
+      cloudy_PV: 0.0429
+      cloudy_noPV: 0.0429
+      work: 0.0896
+    2025:
+      natural: 0.6969
+      sunny_PV: 0.0498
+      sunny_noPV: 0.0498
+      cloudy_PV: 0.0498
+      cloudy_noPV: 0.0498
+      work: 0.1039
+    2030:
+      natural: 0.5054
+      sunny_PV: 0.0909
+      sunny_noPV: 0.0909
+      cloudy_PV: 0.0909
+      cloudy_noPV: 0.0909
+      work: 0.131
+    2035:
+      natural: 0.3416
+      sunny_PV: 0.1331
+      sunny_noPV: 0.1331
+      cloudy_PV: 0.1331
+      cloudy_noPV: 0.1331
+      work: 0.126
+    2040:
+      natural: 0.3292
+      sunny_PV: 0.1381
+      sunny_noPV: 0.1381
+      cloudy_PV: 0.1381
+      cloudy_noPV: 0.1381
+      work: 0.1184
+    2045:
+      natural: 0.3292
+      sunny_PV: 0.1381
+      sunny_noPV: 0.1381
+      cloudy_PV: 0.1381
+      cloudy_noPV: 0.1381
+      work: 0.1184
+    2050:
+      natural: 0.3292
+      sunny_PV: 0.1381
+      sunny_noPV: 0.1381
+      cloudy_PV: 0.1381
+      cloudy_noPV: 0.1381
+      work: 0.1184
+  charging_profile_file: data/ev_charging/elia_charging_daily_profiles_local.csv
+  bev_energy: 0.06
+  v2g: false
+
 # docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#import_limits_cf
 import_limits:
   enable: false
   limits: {}
   domestic: {}
+  transit_penalty: 0.01
   bio_imports: []
+
+# docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#interconnection_limits_cf
+interconnection_limits:
+  enable: false
+  projects_file: data/interconnection_projects_tyndp2024.csv
+  project_statuses:
+  - 2
+  - 3
+  - 4
+  in_grid_until: 2025
+  direction: max
+  factor:
+    2030: 1.0
+    2035: 1.5
+    2040: 1.5
+    2045: 1.5
+    2050: 1.5
+  ntc_file: data/interconnection_ntc_2030.csv
 
 # docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#nuclear_fleet_cf
 nuclear_fleet:
@@ -1633,10 +1786,30 @@ patex:
   - 'NO'
   - RS
   - XK
+  fallback_demand: pypsa
   energy_totals: true
   industry: true
   co2_intensity: true
   district_heating: true
+  heating_efficiencies: true
   base_load: true
+  cooling: false
+  gb_load_dukes: false
+  temperature_shift: {}
+  phev_fleet_factor: 0.0
   import_limits: true
+  fallback_import_caps: eu_per_capita
+  co2_sequestration: true
   plastics_eol_co2: false
+  waste_to_energy: false
+
+# docs in https://pypsa-eur.readthedocs.io/en/latest/configuration/#renewable_limits_cf
+renewable_limits:
+  enable: false
+  offshore_goals_file: data/offshore_wind_goals.csv
+  offshore_goal_year: 2050
+  planned_file:
+  ground_pv_file:
+  rooftop_pv_file:
+  rooftop_pv_share: 1.0
+  planned_until: 2030

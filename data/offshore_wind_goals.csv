@@ -1,0 +1,25 @@
+country,gw_2030,gw_2040,gw_2050,basis,basins,note
+BE,6,8,8,Member State goal,Northern Seas,
+BG,0,0,0,Member State goal,South and East,
+CY,0.1,0.1,0.1,Member State goal,South and East,
+DE,30.5,64.1,70.1,Member State goal,Northern Seas + Baltic,Northern Seas 26.4/60/66; Baltic 4.1
+DK,13.2,27.2,42.9,Member State goal,Northern Seas + Baltic,Northern Seas 5.3/19.3/35; Baltic 7.9
+EE,1,3.5,7,Member State goal,Baltic,
+ES,1.56,1.56,1.56,Member State goal,Atlantic / South and West,national figure given in both reports: counted once
+FI,1,5,12,Member State goal,Baltic,
+FR,4.4,22,47.5,Member State goal,Northern Seas + Atlantic + South and West,Northern Seas 2.1/8/17; Atlantic 1.7/7.5/16.5; Mediterranean 0.6/6.5/14 read from Figure 2 of the South and West report; total = upper end of the 10.4-47.5 GW range France gave for 2050 (Atlantic report)
+GR,2.7,10,17.3,Member State goal,South and East,
+HR,0.51,1.2,3,Member State goal,South and East,
+IE,5.5,20,35,Member State goal,Northern Seas + Atlantic,Northern Seas 4.5/13/20; Atlantic 0.5-1 (upper)/7/15
+IT,8.5,8.5,8.5,Member State goal,South and East + South and West,South and East 4.5 ("minimum technical value"); South and West 4.0 (Figure 2)
+LT,1.4,2.8,4.5,Member State goal,Baltic,
+LV,0.4,0.4,0.4,Member State goal,Baltic,ENTSO-E used 0.5/1.5/2.5
+MT,0.05,0.4,0.4,Member State goal,South and West,
+NL,16,50,72,Member State goal,Northern Seas,
+PL,10.1,10.9,10.9,Member State goal,Baltic,
+PT,10,10,10,Member State goal,Atlantic,ENTSO-E used 2 for 2030
+RO,1,1,1,Member State goal,South and East,
+SE,0.6,11.2,25.2,ENTSO-E ONDP data,Northern Seas + Baltic,Sweden gave only a 2030 goal (Baltic 0.7); ENTSO-E data: Northern Seas 0/2/4 + Baltic 0.6/9.2/21.2
+SI,0,0,0,Member State goal,South and East,
+GB,55.5,96.2,97.9,ENTSO-E ONDP data,Northern Seas,not an EU Member State: TSO data; GB 55/95.2/96.9 + Northern Ireland 0.5/1/1
+NO,3,30,30,Government goal,all Norwegian waters,"not an EU Member State; 2040-2050: the government's goal of areas for 30 GW by 2040 in all Norwegian waters (regjeringen.no, Ambitious offshore wind initiative, May 2022, reaffirmed 2025), not ENTSO-E's 15 GW for the North Sea only (audit #3, 2026-11-16); 2030: ENTSO-E ONDP data (Northern Seas)"

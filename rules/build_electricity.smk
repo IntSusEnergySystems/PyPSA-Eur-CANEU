@@ -14,6 +14,11 @@ rule build_electricity_demand:
             if config_provider("load", "supplement_synthetic")(w)
             else []
         ),
+        gb_dukes=lambda w: (
+            "data/dukes_electricity_available.csv"
+            if get_config(w)["patex"]["enable"] and get_config(w)["patex"]["gb_load_dukes"]
+            else []
+        ),
     output:
         resources("electricity_demand.csv"),
     log:
@@ -675,6 +680,7 @@ rule process_cost_data:
         costs=config_provider("costs"),
         max_hours=config_provider("electricity", "max_hours"),
         cost_year=cost_year,
+        network_costs=config_provider("network_costs"),
     script:
         scripts("process_cost_data.py")
 

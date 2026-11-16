@@ -49,6 +49,33 @@ def load_timeseries(fn, years, countries, date_format=None):
     )
 
 
+def scale_gb_to_dukes(load: pd.DataFrame, totals: pd.Series) -> pd.DataFrame:
+    """
+    PatEx soft-link (``patex.gb_load_dukes``): scale Great Britain's load of each
+    year to DUKES "Electricity available" (UK consumption + losses, DUKES 5.1.2) [TWh].
+
+    NESO's National Demand (``ND``, upstream's GB source) is transmission-level
+    demand: it excludes embedded wind and solar, whose growth makes it fall twice as
+    fast as UK demand (2013 -> 2023: -25 % vs -13 %). The hourly shape is kept; a
+    partial year is scaled pro rata to its hours.
+    """
+    if "GB" not in load:
+        return load
+    load = load.copy()
+    for year, gb in load["GB"].groupby(load.index.year):
+        if year not in totals.index:
+            raise ValueError(f"patex.gb_load_dukes: no DUKES value for {year}")
+        hours = len(pd.date_range(f"{year}-01-01", f"{year + 1}-01-01", freq="h")) - 1
+        target = totals[year] * 1e6 * len(gb) / hours
+        factor = target / gb.sum()
+        logger.info(
+            f"GB load {year}: {gb.sum() / 1e6:.1f} TWh scaled to DUKES "
+            f"{target / 1e6:.1f} TWh (x{factor:.3f})"
+        )
+        load.loc[gb.index, "GB"] = gb * factor
+    return load
+
+
 def consecutive_nans(ds):
     return (
         ds.isnull()
@@ -339,5 +366,9 @@ if __name__ == "__main__":
         "`time_shift_for_large_gaps` or modify the `manual_adjustment` function "
         "for implementing the needed load data modifications."
     )
+
+    if snakemake.input.get("gb_dukes"):
+        totals = pd.read_csv(snakemake.input.gb_dukes, index_col=0).iloc[:, 0]
+        load = scale_gb_to_dukes(load, totals)
 
     load.to_csv(snakemake.output[0])

@@ -63,7 +63,8 @@ if __name__ == "__main__":
 
     # PatEx soft-link: country totals per carrier and process emissions from
     # PatEx, nodal split from PyPSA-Eur. `current electricity` (today's load) is
-    # left untouched; ammonia, methanol and coke are 0 (in PatEx's carriers).
+    # left untouched; methanol and coke are 0 (in PatEx's carriers); ammonia is PatEx's
+    # NH3 demand, its route (energy, process CO2) is out of the carriers (2026-11-12).
     if snakemake.input.get("patex_industry"):
         from patex_pypsa import override_country_totals
 

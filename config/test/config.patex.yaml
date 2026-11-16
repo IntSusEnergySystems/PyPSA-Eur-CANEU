@@ -13,6 +13,13 @@ patex:
   enable: true
   coupling_dir: ../PATEX2PYPSA/runs/levers2
 
+# EV flexibility (T16): Elia AdeqFlex 2025 "Current commitments" (defaults of the
+# section): only the market share of the EV fleet is flexible (7 % in 2030, 18 % from
+# 2040), the rest charges on Elia's curves; Elia plugged-in availability, 60 kWh, no V2G.
+# PHEVs not counted in the fleet (patex.phev_fleet_factor: 0, default).
+ev_flexibility:
+  enable: true
+
 # Nuclear (T34): one link per reactor from data/nuclear_fleet.csv (official sources),
 # no duplicate generators; one 10-year extension (model's choice, at fixed O&M cost)
 # unless the official end date is already an extension; gone within 4 years of its end;
@@ -28,6 +35,31 @@ nuclear_fleet:
 import_limits:
   enable: true
   bio_imports: [biogas, bioliquids]
+
+# Cross-border capacity per border (T30, user 2026-11-09), in usable physical capacity
+# (AC x s_max_pu + DC, existing and new): <= factor x (PyPSA-Eur's grid + TYNDP 2024
+# transfer-capacity increase of the projects commissioned 2026..horizon). NTCs logged only.
+interconnection_limits:
+  enable: true
+  factor:
+    2030: 1.0
+    2035: 1.5
+    2040: 1.5
+    2045: 1.5
+    2050: 1.5
+
+# Wind and solar caps per country (T31, user 2026-11-09): offshore wind at each
+# country's offshore goal (TEN-E, January 2023) at every horizon, instead of PyPSA-Eur's
+# 2 MW/km2 potential; 2030 capped at the capacity planned for 2030 (TYNDP 2026 National
+# Trends+, final NECPs); after 2030 PyPSA-Eur's potentials, no build rate.
+renewable_limits:
+  enable: true
+  planned_file: data/renewables_planned_2030.csv
+
+# Geological CO2 storage (T32): per country from the IEA storage projects; total
+# over all countries from PatEx (patex.co2_sequestration, default true).
+co2_storage:
+  enable: true
 
 sector:
   # Imports (T29): PyPSA-Eur's import options on, so that every fuel PatEx imports
@@ -48,6 +80,7 @@ plotting:
   tech_colors:
     gas feedstock for industry: "#a0522d"  # PatEx soft-link: feedstock gas load
     land transport gas: "#a35d2c"
+    land transport EV inflexible: "#9fc4e8"  # EV charging outside the market share (T16)
     oil for industry: "#7d6b4f"  # PatEx soft-link: oil burnt in industry (T24)
     rail electricity: "#7ab33a"
     aviation electricity: "#5fa3c7"

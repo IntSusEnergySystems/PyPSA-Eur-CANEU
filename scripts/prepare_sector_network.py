@@ -1328,6 +1328,68 @@ def add_ammonia(
     )
 
 
+def refine_distribution_grid(n: pypsa.Network, costs: pd.DataFrame, cfg: dict) -> None:
+    """
+    PyPSA-Eur-CANEU ``distribution_grid`` (after ``insert_electricity_distribution_grid``).
+
+    - ``industry_hv_share``: that share of each node's ``industry electricity`` load is
+      moved back to the transmission bus (industry connected at transmission level
+      does not use, nor size, the distribution grid).
+    - ``pv_hosting_cost`` [EUR/kWp]: distribution reinforcement caused by rooftop PV,
+      added to the capital cost of the extendable ``solar rooftop`` generators at the
+      annuity of the distribution grid (its discount rate, lifetime and FOM).
+    """
+    share = cfg.get("industry_hv_share", 0.0)
+    loads = n.loads.index[n.loads.carrier == "industry electricity"]
+    if len(loads) and share:
+        lv_bus = n.loads.loc[loads, "bus"]
+        hv_bus = lv_bus.str.replace(" low voltage", "", regex=False)
+        country = hv_bus.map(n.buses.country)
+        if isinstance(share, dict):
+            default = float(share.get("default", 0.0))
+            s = country.map(lambda c: float(share.get(c, default)))
+        else:
+            s = pd.Series(float(share), index=loads)
+        s = s[s > 0]
+        if (s > 1).any():
+            raise ValueError("distribution_grid.industry_hv_share must be <= 1")
+        if len(s):
+            names = s.index + " HV"
+            static = n.loads.loc[s.index, "p_set"]
+            n.add("Load", names, bus=hv_bus[s.index].values,
+                  carrier="industry electricity", p_set=(static * s).values)
+            n.loads.loc[s.index, "p_set"] = static * (1 - s)
+            dynamic = n.loads_t.p_set
+            cols = s.index.intersection(dynamic.columns)
+            if len(cols):
+                hv = dynamic[cols].mul(s[cols], axis=1)
+                hv.columns = cols + " HV"
+                n.loads_t.p_set = pd.concat(
+                    [dynamic.drop(columns=cols), dynamic[cols].mul(1 - s[cols], axis=1), hv],
+                    axis=1,
+                )
+            logger.info(
+                "distribution grid: industry electricity at transmission level, share "
+                "per country: "
+                + ", ".join(f"{c} {v:.2f}" for c, v in s.groupby(country[s.index]).first().items())
+            )
+
+    hosting = float(cfg.get("pv_hosting_cost", 0.0))
+    if hosting:
+        grid = costs.loc["electricity distribution grid"]
+        # capital_cost / investment = annuity factor incl. FOM (and nyears)
+        factor = grid["capital_cost"] / grid["investment"]
+        adder = hosting * 1e3 * factor  # EUR/kW -> EUR/MW
+        pv = n.generators.index[
+            (n.generators.carrier == "solar rooftop") & n.generators.p_nom_extendable
+        ]
+        n.generators.loc[pv, "capital_cost"] += adder
+        logger.info(
+            f"distribution grid: rooftop PV hosting {hosting:.0f} EUR/kWp, "
+            f"+{adder:.0f} EUR/MW/a on {len(pv)} generators"
+        )
+
+
 def insert_electricity_distribution_grid(
     n: pypsa.Network,
     costs: pd.DataFrame,
@@ -1418,7 +1480,10 @@ def insert_electricity_distribution_grid(
 
     # this catches regular electricity load and "industry electricity" and
     # "agriculture machinery electric" and "agriculture electricity"
-    loads = n.loads.index[n.loads.carrier.str.contains("electric")]
+    loads = n.loads.index[
+        n.loads.carrier.str.contains("electric")
+        | (n.loads.carrier == "land transport EV inflexible")
+    ]
     n.loads.loc[loads, "bus"] += " low voltage"
 
     bevs = n.links.index[n.links.carrier == "BEV charger"]
@@ -2084,6 +2149,8 @@ def add_EVs(
     spatial: SimpleNamespace,
     options: dict,
     number_evs: pd.Series | None = None,
+    ev_flexibility: dict | None = None,
+    investment_year: int | None = None,
 ) -> None:
     """
     Add electric vehicle (EV) infrastructure to the network.
@@ -2114,6 +2181,12 @@ def add_EVs(
     number_evs : pd.Series, optional
         PatEx soft-link: number of EVs per node, used instead of
         ``number_cars * electric_share`` to size chargers, DSM and V2G.
+    ev_flexibility : dict, optional
+        ``ev_flexibility`` config section (Elia AdeqFlex, T16): only the market
+        share of the fleet and of the demand is flexible, the rest of the demand
+        is a fixed load on the electricity bus (``scripts/_ev_flexibility.py``).
+    investment_year : int, optional
+        Planning horizon, for the horizon-dependent ``ev_flexibility`` values.
     options : dict
         Configuration options containing at least:
         - transport_electric_efficiency: float
@@ -2176,20 +2249,77 @@ def add_EVs(
     # Calculate load profile
     profile = electric_share * p_set.div(efficiency)
 
-    # Add EV load
-    n.add(
-        "Load",
-        spatial.nodes,
-        suffix=" land transport EV",
-        bus=spatial.nodes + " EV battery",
-        carrier="land transport EV",
-        p_set=profile.loc[n.snapshots],
-    )
-
     # number of EVs: sizes chargers, DSM storage and V2G
     fleet = number_cars * electric_share
     if number_evs is not None:
         fleet.loc[number_evs.index] = number_evs
+
+    flexible_share = options["bev_dsm_availability"]
+    bev_energy = options["bev_energy"]
+    v2g = options["v2g"]
+    if ev_flexibility:
+        # Elia AdeqFlex (T16): only the market share is flexible, the rest of the
+        # demand follows Elia's charging curves on the electricity bus. The demand
+        # is metered at the grid, so the flexible part is put behind the charger
+        # net of its loss (grid draw = demand). scripts/_ev_flexibility.py
+        from scripts._ev_flexibility import (
+            by_horizon,
+            charging_shape,
+            rescale_availability,
+            split_demand,
+        )
+
+        flexible_share = by_horizon(ev_flexibility["market_share"], investment_year)
+        bev_energy = ev_flexibility["bev_energy"]
+        v2g = ev_flexibility["v2g"]
+        avail_profile = rescale_availability(
+            avail_profile,
+            options["bev_avail_max"],
+            options["bev_avail_mean"],
+            by_horizon(ev_flexibility["avail_max"], investment_year),
+            by_horizon(ev_flexibility["avail_mean"], investment_year),
+            by_horizon(ev_flexibility["avail_min"], investment_year),
+        )
+        shape = charging_shape(
+            ev_flexibility["charging_profile_file"],
+            n.snapshots,
+            n.buses.country[spatial.nodes],
+            investment_year,
+            by_horizon(ev_flexibility["charging_weights"], investment_year),
+        )
+        flexible, inflexible = split_demand(
+            profile.loc[n.snapshots, spatial.nodes], shape, flexible_share
+        )
+        n.add(
+            "Load",
+            spatial.nodes,
+            suffix=" land transport EV",
+            bus=spatial.nodes + " EV battery",
+            carrier="land transport EV",
+            p_set=flexible * options["bev_charge_efficiency"],
+        )
+        if "land transport EV inflexible" not in n.carriers.index:
+            n.add("Carrier", "land transport EV inflexible")
+        n.add(
+            "Load",
+            spatial.nodes,
+            suffix=" land transport EV inflexible",
+            bus=spatial.nodes,
+            carrier="land transport EV inflexible",
+            p_set=inflexible,
+        )
+        # the charger and the EV battery serve the flexible share of the fleet
+        fleet = fleet * flexible_share
+    else:
+        # Add EV load
+        n.add(
+            "Load",
+            spatial.nodes,
+            suffix=" land transport EV",
+            bus=spatial.nodes + " EV battery",
+            carrier="land transport EV",
+            p_set=profile.loc[n.snapshots],
+        )
 
     # Add BEV chargers
     p_nom = fleet * options["bev_charge_rate"]
@@ -2208,7 +2338,9 @@ def add_EVs(
 
     # Add demand-side management components if enabled
     if options["bev_dsm"]:
-        e_nom = fleet * options["bev_energy"] * options["bev_dsm_availability"]
+        e_nom = fleet * bev_energy
+        if not ev_flexibility:
+            e_nom *= flexible_share
 
         n.add(
             "Store",
@@ -2223,14 +2355,14 @@ def add_EVs(
         )
 
         # Add vehicle-to-grid if enabled
-        if options["v2g"]:
+        if v2g:
             n.add(
                 "Link",
                 spatial.nodes,
                 suffix=" V2G",
                 bus1=spatial.nodes,
                 bus0=spatial.nodes + " EV battery",
-                p_nom=p_nom * options["bev_dsm_availability"],
+                p_nom=p_nom * (1 if ev_flexibility else flexible_share),
                 carrier="V2G",
                 p_max_pu=avail_profile.loc[n.snapshots, spatial.nodes],
                 lifetime=1,
@@ -2452,6 +2584,7 @@ def add_land_transport(
     nodes,
     patex_energy=None,
     patex_evs=None,
+    ev_flexibility=None,
 ) -> None:
     """
     Add land transport demand and infrastructure to the network.
@@ -2585,6 +2718,8 @@ def add_land_transport(
             spatial,
             options,
             number_evs=patex_evs,
+            ev_flexibility=ev_flexibility,
+            investment_year=investment_year,
         )
 
     if np.any(shares["fuel_cell"] > 0):
@@ -2720,6 +2855,67 @@ def add_patex_transport_loads(n: pypsa.Network, energy: pd.DataFrame) -> None:
         )
 
 
+def patex_cooling_shape(
+    profile: pd.DataFrame,
+    location: pd.Series,
+    population_fraction: pd.Series,
+    weights: pd.Series,
+    countries: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    PatEx soft-link (``patex.cooling``, audit #5b): snapshot × node load [MW] per MWh
+    of a country's electric cooling over the modelled period.
+
+    ``profile``: snapshot × region cooling profile of one sector (Hotmaps slope ×
+    population-weighted cooling degree days, ``build_patex_cooling``). A country's cooling is spread over its nodes and hours
+    in proportion to it (more people, warmer: more cooling). A country without any
+    cooling degree hour gets the profile of all nodes together, split over its nodes
+    by population (``population_fraction``); none at all: flat. A warning is logged
+    for such countries among ``countries`` (default: all).
+    """
+    nodes = pd.Index(location.unique())
+    s = profile.reindex(index=weights.index, columns=nodes).fillna(0.0).clip(lower=0.0)
+    pooled = s.sum(axis=1)
+    pooled_total = pooled.multiply(weights).sum()
+    pooled = pooled / pooled_total if pooled_total > 0 else pooled * 0 + 1 / weights.sum()
+    out = pd.DataFrame(0.0, index=weights.index, columns=nodes)
+    for ct, ct_nodes in nodes.groupby(nodes.str[:2]).items():
+        total = s[ct_nodes].multiply(weights, axis=0).sum().sum()
+        if total > 0:
+            out[ct_nodes] = s[ct_nodes] / total
+        else:
+            share = population_fraction.reindex(ct_nodes).fillna(0.0)
+            share = share / share.sum() if share.sum() > 0 else share * 0 + 1 / len(share)
+            out[ct_nodes] = np.outer(pooled, share)
+            if countries is None or ct in countries:
+                logger.warning(
+                    f"PatEx cooling {ct}: no cooling in the weather year's profile, "
+                    "profile of all nodes used"
+                )
+    return out
+
+
+def add_patex_cooling_load(
+    n: pypsa.Network, loads_i: pd.Index, p_set: pd.DataFrame
+) -> None:
+    """
+    PatEx soft-link (``patex.cooling``): electric space cooling as its own load
+    ``<load> electricity cooling`` on the bus of each electricity load ``loads_i``
+    (``p_set``: snapshot × load, MW).
+    """
+    carrier = "electricity cooling"
+    if carrier not in n.carriers.index:
+        n.add("Carrier", carrier)
+    n.add(
+        "Load",
+        loads_i,
+        suffix=f" {carrier}",
+        bus=n.loads.loc[loads_i, "bus"].values,
+        carrier=carrier,
+        p_set=p_set[loads_i],
+    )
+
+
 #: PatEx non-electric cooking fuels (``<fuel> cooking`` bundle columns)
 PATEX_COOKING_FUELS = ("gas", "oil", "solid biomass", "coal", "hydrogen")
 
@@ -2840,7 +3036,12 @@ def add_patex_district_heating_losses(n: pypsa.Network, loss: pd.Series) -> None
 
 
 def build_heat_demand(
-    n, hourly_heat_demand_file, pop_weighted_energy_totals, heating_efficiencies
+    n,
+    hourly_heat_demand_file,
+    pop_weighted_energy_totals,
+    heating_efficiencies,
+    electric_heat_in_load=None,
+    heat_demand_horizon_file=None,
 ):
     """
     Build heat demand time series and adjust electricity load to account for electric heating.
@@ -2856,6 +3057,15 @@ def build_heat_demand(
         electricity consumption for different sectors and uses
     heating_efficiencies : dict
         Dictionary mapping sector and use combinations to their heating efficiencies
+    electric_heat_in_load : pd.DataFrame, optional
+        ``electricity {sector} {use}`` columns subtracted from the electricity load
+        instead of those of ``pop_weighted_energy_totals`` (PatEx soft-link: the
+        PyPSA-Eur values, i.e. the electric heating that is in the measured load,
+        while the heat demand is PatEx's).
+    heat_demand_horizon_file : str, optional
+        Hourly heat demand profile of the horizon's climate (PatEx soft-link,
+        ``patex.temperature_shift``): shape of the heat demand; the electric heating
+        in the measured load keeps the weather year's shape (``hourly_heat_demand_file``).
 
     Returns
     -------
@@ -2873,9 +3083,17 @@ def build_heat_demand(
     heat_demand_shape = (
         xr.open_dataset(hourly_heat_demand_file).to_dataframe().unstack(level=1)
     )
+    electric_heat_shape = heat_demand_shape
+    if heat_demand_horizon_file is not None:
+        heat_demand_shape = (
+            xr.open_dataset(heat_demand_horizon_file).to_dataframe().unstack(level=1)
+        )
 
     sectors = [sector.value for sector in HeatSector]
     uses = ["water", "space"]
+
+    if electric_heat_in_load is None:
+        electric_heat_in_load = pop_weighted_energy_totals
 
     heat_demand = {}
     electric_heat_supply = {}
@@ -2891,8 +3109,8 @@ def build_heat_demand(
             heat_demand_shape[name] / heat_demand_shape[name].sum()
         ).multiply(pop_weighted_energy_totals[f"total {sector} {use}"] * eff) * 1e6
         electric_heat_supply[name] = (
-            heat_demand_shape[name] / heat_demand_shape[name].sum()
-        ).multiply(pop_weighted_energy_totals[f"electricity {sector} {use}"]) * 1e6
+            electric_heat_shape[name] / electric_heat_shape[name].sum()
+        ).multiply(electric_heat_in_load[f"electricity {sector} {use}"]) * 1e6
 
     heat_demand = pd.concat(heat_demand, axis=1)
     electric_heat_supply = pd.concat(electric_heat_supply, axis=1)
@@ -2934,6 +3152,8 @@ def add_heat(
     options: dict,
     investment_year: int,
     no_district_heating_loss: list[str] | None = None,
+    electric_heat_in_load: pd.DataFrame | None = None,
+    heat_demand_horizon_file: str | None = None,
 ):
     """
     Add heat sector to the network including heat demand, heat pumps, storage, and conversion technologies.
@@ -2996,6 +3216,11 @@ def add_heat(
     no_district_heating_loss : list[str], optional
         Countries whose urban central heat load gets no ``district_heating_loss``
         (PatEx soft-link: losses added as their own load).
+    electric_heat_in_load : pd.DataFrame, optional
+        Electric heating subtracted from the electricity load (see
+        :func:`build_heat_demand`); default ``pop_weighted_energy_totals``.
+    heat_demand_horizon_file : str, optional
+        Heat demand profile of the horizon's climate (see :func:`build_heat_demand`).
 
     Returns
     -------
@@ -3024,6 +3249,8 @@ def add_heat(
         hourly_heat_demand_total_file,
         pop_weighted_energy_totals,
         heating_efficiencies,
+        electric_heat_in_load=electric_heat_in_load,
+        heat_demand_horizon_file=heat_demand_horizon_file,
     )
 
     cop = xr.open_dataarray(cop_profiles_file)
@@ -4665,6 +4892,7 @@ def add_industry(
     cf_industry: dict,
     investment_year: int,
     hvc_to_air_co2: bool = True,
+    patex_waste_to_energy: pd.DataFrame | None = None,
 ):
     """
     Add industry and their corresponding carrier buses to the network.
@@ -5121,6 +5349,47 @@ def add_industry(
         carrier="non-sequestered HVC",
         unit="MWh_LHV",
     )
+    # PatEx soft-link (`patex.waste_to_energy`, audit #2): the plastics carbon that
+    # reaches the atmosphere is PatEx's non-renewable waste burned in power and heat
+    # plants (bundle, per country, spread by population); the rest of the naphtha
+    # carbon stays in products, as in PatEx and the 1990 inventory baseline
+    wte_co2_per_mwh = None
+    if patex_waste_to_energy is not None:
+        if len(spatial.oil.non_sequestered_hvc) == 1:
+            raise ValueError("patex.waste_to_energy needs regional HVC buses (regional_oil_demand)")
+        if not cf_industry["waste_to_energy"] or hvc_to_air_co2:
+            raise ValueError(
+                "patex.waste_to_energy needs industry.waste_to_energy: true and "
+                "patex.plastics_eol_co2: false"
+            )
+        ct = pop_layout.ct
+        missing = sorted(set(ct) - set(patex_waste_to_energy.index))
+        if missing:
+            raise ValueError(f"PatEx waste-to-energy: no value for {missing}")
+        wte = patex_waste_to_energy.reindex(ct.unique())
+        pop_share = pop_layout.total / pop_layout.total.groupby(ct).transform("sum")
+        # MWh over the modelled period (TWh/a × years modelled)
+        HVC_potential = pop_share * ct.map(wte["waste to energy fuel"]) * 1e6 * nhours / 8760
+        factor = (wte["waste to energy co2"] / wte["waste to energy fuel"]).where(
+            wte["waste to energy fuel"] > 0, 0.0
+        )
+        wte_co2_per_mwh = ct.map(factor)  # tCO2/MWh = MtCO2/TWh, per node
+        naphtha_co2 = (
+            p_set_naphtha.sum() * nhours * HVC_per_naphtha * costs.at["oil", "CO2 intensity"]
+        )
+        burned_co2 = (HVC_potential * wte_co2_per_mwh).sum()
+        if burned_co2 > naphtha_co2:
+            raise ValueError(
+                f"PatEx waste-to-energy CO2 {burned_co2 / 1e6:.1f} Mt above the naphtha "
+                f"carbon {naphtha_co2 / 1e6:.1f} Mt"
+            )
+        logger.info(
+            f"PatEx waste-to-energy: {HVC_potential.sum() / 1e6:.1f} TWh, "
+            f"{burned_co2 / 1e6:.2f} MtCO2 burned in waste CHPs; "
+            f"{(naphtha_co2 - burned_co2) / 1e6:.1f} MtCO2 of naphtha carbon kept in products"
+        )
+        HVC_potential.index = HVC_potential.index + " non-sequestered HVC"
+
     # add stores with population distributed potential - must be zero at the last step
     e_max_pu = pd.DataFrame(
         1, index=n.snapshots, columns=spatial.oil.non_sequestered_hvc
@@ -5145,16 +5414,19 @@ def add_industry(
             "patex.plastics_eol_co2: false with sector.municipal_solid_waste: the "
             "biogenic credit of waste would become a net removal"
         )
-    n.add(
-        "Link",
-        spatial.oil.demand_locations,
-        suffix=" HVC to air",
-        bus0=spatial.oil.non_sequestered_hvc,
-        bus1="co2 atmosphere",
-        carrier="HVC to air",
-        p_nom_extendable=True,
-        efficiency=costs.at["oil", "CO2 intensity"] if hvc_to_air_co2 else 0.0,
-    )
+    # With PatEx waste-to-energy the stores hold only waste that is burned: no other
+    # outlet than the waste CHPs, so their annual amount is a must-burn.
+    if wte_co2_per_mwh is None:
+        n.add(
+            "Link",
+            spatial.oil.demand_locations,
+            suffix=" HVC to air",
+            bus0=spatial.oil.non_sequestered_hvc,
+            bus1="co2 atmosphere",
+            carrier="HVC to air",
+            p_nom_extendable=True,
+            efficiency=costs.at["oil", "CO2 intensity"] if hvc_to_air_co2 else 0.0,
+        )
 
     if cf_industry["waste_to_energy"] or cf_industry["waste_to_energy_cc"]:
         if options["biomass"] and options["municipal_solid_waste"]:
@@ -5172,6 +5444,13 @@ def add_industry(
                 ],  # because msw is co2 neutral and will be burned in waste CHP or decomposed as oil
             )
 
+        # CO2 per MWh of burned waste: PatEx's factor of non-renewable waste with
+        # patex.waste_to_energy (the bus holds PatEx's waste fuel, not pure HVC)
+        waste_co2 = (
+            costs.at["oil", "CO2 intensity"]
+            if wte_co2_per_mwh is None
+            else wte_co2_per_mwh.reindex(spatial.nodes).values
+        )
         if cf_industry["waste_to_energy"]:
             urban_central = spatial.nodes + " urban central heat"
             existing_urban_central = n.buses.index[
@@ -5194,7 +5473,7 @@ def add_industry(
                 marginal_cost=costs.at["waste CHP", "VOM"],
                 efficiency=costs.at["waste CHP", "efficiency"],
                 efficiency2=costs.at["waste CHP", "efficiency-heat"],
-                efficiency3=costs.at["oil", "CO2 intensity"],
+                efficiency3=waste_co2,
                 lifetime=costs.at["waste CHP", "lifetime"],
             )
 
@@ -5216,9 +5495,8 @@ def add_industry(
                 marginal_cost=costs.at["waste CHP CC", "VOM"],
                 efficiency=costs.at["waste CHP CC", "efficiency"],
                 efficiency2=costs.at["waste CHP CC", "efficiency-heat"],
-                efficiency3=costs.at["oil", "CO2 intensity"]
-                * (1 - options["cc_fraction"]),
-                efficiency4=costs.at["oil", "CO2 intensity"] * options["cc_fraction"],
+                efficiency3=waste_co2 * (1 - options["cc_fraction"]),
+                efficiency4=waste_co2 * options["cc_fraction"],
                 lifetime=costs.at["waste CHP CC", "lifetime"],
             )
 
@@ -6616,61 +6894,142 @@ def add_bio_imports(
 EUROSTAT_PRODUCTION = {"gas": "G3000", "oil": "O4000XBIO", "coal": "C0000X0350-0370"}
 
 
-def patex_supply_limits(
-    fn: str, countries: list[str], eurostat_fn: str, year: int
-) -> dict[str, dict[str, float]]:
-    """
-    PatEx soft-link: caps per fuel from PatEx gross imports and domestic
-    production, summed over the modelled countries [TWh/a].
+def eurostat_latest(balances: pd.DataFrame, nrg_bal: str, countries: list[str],
+                    codes: dict[str, list[str]], year: int) -> pd.DataFrame:
+    """Eurostat ``nrg_bal`` per country and fuel [TWh/a] in ``year``, or in the latest
+    earlier year where that ``nrg_bal`` of the country has any non-zero value (GB:
+    2019, Eurostat reports zeros after Brexit). A fuel at zero in a year with data stays
+    zero."""
+    rows = {}
+    for ct in countries:
+        b = balances[(balances.country == ct) & (balances.nrg_bal == nrg_bal)]
+        filled = b.year[(b.value.fillna(0) != 0) & (b.year <= year)]
+        y = int(filled.max()) if not filled.empty else year
+        if y != year:
+            logger.warning(f"Eurostat {nrg_bal} of {ct}: no data in {year}, using {y}")
+        b = b[b.year == y].groupby("siec").value.sum()
+        rows[ct] = {fuel: float(b.reindex(siec).fillna(0.0).sum())
+                    for fuel, siec in codes.items()}
+    return pd.DataFrame(rows).T.reindex(countries)
 
-    PatEx's domestic gas, oil and coal "production" is the share of its demand
-    that the import-share lever does not import, not a resource. Domestic supply
-    is therefore capped per country at min(PatEx production, today's production
-    from the Eurostat balances, ``year``); the rest of PatEx's production (the
-    gap, e.g. coal in a country without mines) is added to the import cap and
-    logged. Every modelled country must be in the bundle: a fallback country's
-    supply would not be in the caps.
-    """
+
+#: ARDECO territory codes that differ from PyPSA-Eur's country codes
+ARDECO_CODES = {"GB": "UK", "GR": "EL"}
+
+
+def ardeco_population(fn: str, countries: list[str], year: int) -> pd.Series:
+    """Population per country [persons] in ``year`` (latest earlier year with data)
+    from JRC ARDECO (``SNPTD``, PyPSA-Eur's NUTS3 population source; EU, EFTA, UK)."""
+    df = pd.read_csv(fn)
+    df = df[df.LEVEL_ID == 0].set_index("TERRITORY_ID")
+    years = [c for c in df.columns if c.isdigit() and int(c) <= year]
+    out = {}
+    for ct in countries:
+        code = ARDECO_CODES.get(ct, ct)
+        if code not in df.index:
+            raise ValueError(f"ARDECO population: no data for {ct} ({code})")
+        row = df.loc[code, years].dropna()
+        out[ct] = float(row.iloc[-1])
+    return pd.Series(out)
+
+
+def patex_import_caps(
+    supply: pd.DataFrame, real: pd.DataFrame, year: int
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """PatEx caps per country [TWh/a]: (imports, domestic). Domestic gas, oil and coal
+    = min(PatEx production, today's ``real`` production); the rest (the gap) is added to
+    the imports."""
     from scripts._import_limits_config import IMPORT_FUELS
 
-    supply = pd.read_csv(fn, index_col=0)
-    missing = sorted(set(countries) - set(supply.index))
-    if missing:
-        raise ValueError(
-            f"PatEx import limits: no PatEx supply for {missing}; set "
-            "patex.import_limits: false and give import_limits.limits instead"
-        )
-    supply = supply.loc[countries]
-
-    balances = pd.read_csv(eurostat_fn)
-    real = (
-        balances.query("nrg_bal == 'PPRD' and year == @year")
-        .pivot_table(index="country", columns="siec", values="value", aggfunc="sum")
-        .reindex(index=countries, columns=list(EUROSTAT_PRODUCTION.values()))
-        .fillna(0.0)
-    )
-
-    imports = {f: supply[f].sum() for f in IMPORT_FUELS if f in supply}
-    domestic = {}
-    for fuel, siec in EUROSTAT_PRODUCTION.items():
+    imports = supply[[f for f in IMPORT_FUELS if f in supply]].astype(float).copy()
+    domestic = pd.DataFrame(index=supply.index)
+    for fuel in EUROSTAT_PRODUCTION:
         produced = supply.get(f"{fuel} production")
         if produced is None:
             continue
-        kept = np.minimum(produced, real[siec])
+        kept = np.minimum(produced, real[fuel].reindex(supply.index))
         gap = produced - kept
-        domestic[fuel] = kept.sum()
-        imports[fuel] = imports.get(fuel, 0.0) + gap.sum()
-        if (gap > 1e-6).any():
+        domestic[fuel] = kept
+        imports[fuel] = imports.get(fuel, 0.0) + gap
+        gap = gap[gap > 1e-6]
+        if not gap.empty:
             logger.warning(
                 f"PatEx {fuel} production above today's ({year}) production, added "
                 "to the import cap [TWh/a]: "
-                + ", ".join(f"{ct} {v:.2f}" for ct, v in gap[gap > 1e-6].items())
+                + ", ".join(f"{ct} {v:.2f}" for ct, v in gap.items())
             )
+    return imports, domestic
+
+
+def patex_supply_limits(
+    fn: str, countries: list[str], eurostat_fn: str, year: int,
+    fallback: list[str] | None = None, population_fn: str | None = None,
+) -> dict[str, dict[str, dict[str, float]]]:
+    """
+    PatEx soft-link: caps per fuel and region [TWh/a], ``{kind: {fuel: {region:
+    value}}}``; a region is a comma-separated list of countries.
+
+    - PatEx countries together (the "EU" region): gross imports = PatEx imports summed
+      over them. PatEx's domestic gas, oil and coal "production" is the share of its
+      demand that the import-share lever does not import, not a resource: domestic
+      supply is capped per country at min(PatEx production, today's production from the
+      Eurostat balances, ``year``); the rest (the gap, e.g. coal in a country without
+      mines) is added to the import cap and logged.
+    - Each modelled country without PatEx data (``fallback``, e.g. GB, NO): domestic
+      production from Eurostat (latest year ≤ ``year`` with data). Imports: with
+      ``population_fn`` (ARDECO), the EU's import cap per person times the country's
+      population, per fuel; the EU figure = PatEx caps (imports + gap) of every country
+      of the PatEx bundle ÷ their population (``patex.fallback_import_caps:
+      eu_per_capita``). Without it, its own Eurostat imports (``eurostat``).
+
+    ``add_supply_limits`` turns the regions into constraints: per region where the fuel
+    is located per node, one summed cap where it sits on one EU-wide bus.
+    """
+    from scripts._import_limits_config import EUROSTAT_IMPORTS
+
+    fallback = [c for c in countries if c in set(fallback or [])]
+    patex = [c for c in countries if c not in fallback]
+    supply = pd.read_csv(fn, index_col=0)
+    missing = sorted(set(patex) - set(supply.index))
+    if missing:
+        raise ValueError(
+            f"PatEx import limits: no PatEx supply for {missing}; add them to "
+            "patex.fallback_countries or set patex.import_limits: false"
+        )
+    balances = pd.read_csv(eurostat_fn)
+    production = {f: [c] for f, c in EUROSTAT_PRODUCTION.items()}
+    bundle = list(supply.index) if (fallback and population_fn) else patex
+    real = eurostat_latest(balances, "PPRD", bundle, production, year)
+    imp_ct, dom_ct = patex_import_caps(supply.loc[bundle], real, year)
+
+    eu = "EU:" + ",".join(patex)  # the PatEx countries together
+    imports = {f: {eu: float(imp_ct.loc[patex, f].sum())} for f in imp_ct}
+    domestic = {f: {eu: float(dom_ct.loc[patex, f].sum())} for f in dom_ct}
+    if fallback:
+        prod = eurostat_latest(balances, "PPRD", fallback, production, year)
+        if population_fn:
+            pop = ardeco_population(population_fn, bundle + fallback, year)
+            per_capita = imp_ct.sum() / pop[bundle].sum()  # TWh per person
+            logger.info(
+                f"EU import cap per person ({len(bundle)} PatEx countries, population "
+                f"{pop[bundle].sum() / 1e6:.1f} M) [MWh/person/a]: "
+                + ", ".join(f"{f} {v * 1e6:.3f}" for f, v in per_capita.items())
+            )
+            imp = pd.DataFrame({f: per_capita[f] * pop[fallback] for f in imports})
+        else:
+            imp = eurostat_latest(balances, "IMP", fallback, EUROSTAT_IMPORTS, year)
+        for ct in fallback:
+            for fuel in imports:
+                imports[fuel][ct] = float(imp.at[ct, fuel]) if fuel in imp else 0.0
+            for fuel in domestic:
+                domestic[fuel][ct] = float(prod.at[ct, fuel])
     logger.info(
         "Supply limits [TWh/a]: imports "
-        + ", ".join(f"{k} {v:.1f}" for k, v in imports.items())
-        + "; domestic "
-        + ", ".join(f"{k} {v:.1f}" for k, v in domestic.items())
+        + "; ".join(f"{k} " + ", ".join(f"{r[:12]} {v:.1f}" for r, v in d.items())
+                    for k, d in imports.items())
+        + " | domestic "
+        + "; ".join(f"{k} " + ", ".join(f"{r[:12]} {v:.1f}" for r, v in d.items())
+                    for k, d in domestic.items())
     )
     return {"import": imports, "domestic": domestic}
 
@@ -6718,19 +7077,141 @@ def add_domestic_supply(
         )
 
 
+def bus_countries(n: pypsa.Network, buses: pd.Series) -> pd.Series:
+    """Country of buses through their location (NaN for EU-wide buses)."""
+    location = buses.map(n.buses.location).replace("", np.nan).fillna(buses)
+    location = location.where(location.isin(n.buses.index))
+    return location.map(n.buses.country).replace("", np.nan)
+
+
+def component_countries(
+    n: pypsa.Network, component: str, carriers: list[str] | None = None
+) -> pd.Series:
+    """
+    Country of each component: its ``location`` attribute if it names a node ("EU":
+    none), else its first port on a located bus (generators: bus; links: bus1, bus0,
+    bus2, ...). NaN for components on EU-wide buses only (e.g. the EU's import
+    generator on the oil pool, or the refinery between two pools).
+    """
+    static = n.static(component)
+    if carriers is not None:
+        static = static[static.carrier.isin(carriers)]
+    out = pd.Series(np.nan, index=static.index, dtype=object)
+    explicit_eu = pd.Series(False, index=static.index)
+    if "location" in static:
+        loc = static["location"].fillna("")
+        explicit_eu = loc == "EU"
+        out = bus_countries(n, loc.where(loc != "", np.nan).dropna()).reindex(static.index)
+    ports = ["bus"] if component == "Generator" else (
+        ["bus1", "bus0"] + sorted(c for c in static if c.startswith("bus") and
+                                  c[3:].isdigit() and int(c[3:]) > 1))
+    for port in ports:
+        if port not in static:
+            continue
+        missing = out.isna() & ~explicit_eu
+        if not missing.any():
+            break
+        out[missing] = bus_countries(n, static.loc[missing, port]).values
+    return out
+
+
+#: EU-wide demand components that cannot be attributed to a country (upstream options
+#: to place them per node: regional_coal_demand, methanol.regional_methanol_demand,
+#: ammonia: regional)
+UNLOCATED_DEMAND = ["coal for industry", "industry methanol", "shipping methanol"]
+
+
+def pool_buses(n: pypsa.Network, pool: str) -> pd.Index:
+    from scripts._import_limits_config import POOLS
+
+    buses = n.buses[n.buses.carrier.isin(POOLS[pool])]
+    return buses.index[bus_countries(n, pd.Series(buses.index, buses.index)).isna()]
+
+
+def add_boundary_tie_break(n: pypsa.Network, outside: list[str], penalty: float) -> None:
+    """``penalty`` [EUR/MWh] on gas and H2 pipelines between a country in ``outside``
+    (non-PatEx) and any other country (tie-break, see ``import_limits.transit_penalty``)."""
+    from scripts._import_limits_config import PIPELINES
+
+    if not penalty or not outside:
+        return
+    country = bus_countries(n, n.links.bus0), bus_countries(n, n.links.bus1)
+    pipes = n.links.carrier.isin(sum(PIPELINES.values(), []))
+    out0, out1 = country[0].isin(outside), country[1].isin(outside)
+    cross = pipes & country[0].notna() & country[1].notna() & (out0 != out1)
+    n.links.loc[cross, "marginal_cost"] += penalty
+    logger.info(f"transit tie-break {penalty} EUR/MWh on {int(cross.sum())} pipelines")
+
+
+def split_pooled_supply(n: pypsa.Network, outside: list[str]) -> None:
+    """
+    Countries outside the PatEx region (``outside``, e.g. GB, NO) get their own copy of
+    every import and domestic-production component of the EU-wide pools (oil, coal,
+    methanol, NH3), located in the country (``location`` = one of its AC buses), named
+    "<country> <original>". The originals become the EU's (``location`` = "EU"). With
+    located demand, ``solve_network`` then counts each country's net flow into or out
+    of the pool. Fails if a pool still carries EU-wide demand (cannot be attributed).
+    """
+    from scripts._import_limits_config import DOMESTIC_FUELS, IMPORT_FUELS, POOL_OF
+
+    present = [c for c in outside if (n.buses.country == c).any()]
+    if not present:
+        return
+    for pool in set(POOL_OF.values()):
+        buses = pool_buses(n, pool)
+        if buses.empty:
+            continue
+        loads = n.loads.index[n.loads.bus.isin(buses)]
+        links = n.links.index[
+            n.links.carrier.isin(UNLOCATED_DEMAND)
+            & n.links[[c for c in n.links if c.startswith("bus")]].isin(buses).any(axis=1)
+        ]
+        # only those that cannot be placed (regional demand: per node, located)
+        links = links[component_countries(n, "Link").reindex(links).isna().values]
+        if len(loads) or len(links):
+            raise ValueError(
+                f"import_limits: EU-wide {pool} demand cannot be attributed to a country "
+                f"({sorted(set(n.loads.carrier[loads]) | set(n.links.carrier[links]))}); "
+                "set sector.regional_coal_demand, sector.methanol.regional_methanol_demand"
+                " or sector.ammonia: regional"
+            )
+    node = {c: n.buses.index[(n.buses.country == c) & (n.buses.carrier == "AC")][0]
+            for c in present}
+    for fuels in (IMPORT_FUELS, DOMESTIC_FUELS):
+        for fuel in POOL_OF:
+            if fuel not in fuels:
+                continue
+            component, carriers = fuels[fuel]
+            static = n.static(component)
+            where = component_countries(n, component, carriers)
+            pooled = where.index[where.isna()]
+            pooled = [p for p in pooled if not str(p).startswith(tuple(f"{c} " for c in present))]
+            for name in pooled:
+                n.static(component).loc[name, "location"] = "EU"
+                row = static.loc[name].dropna()
+                attrs = {k: v for k, v in row.items() if not k.endswith("_opt")}
+                for c in present:
+                    attrs["location"] = node[c]
+                    n.add(component, f"{c} {name}", **attrs)
+                logger.info(f"pooled {fuel} supply {name!r}: copies for {present}")
+
+
 def add_supply_limits(
-    n: pypsa.Network, limits: dict[str, dict[str, float]], nyears: float
+    n: pypsa.Network, limits: dict[str, dict[str, float | dict[str, float]]], nyears: float
 ) -> None:
     """
     Cap the gross imports (``limits["import"]``) and the domestic production
-    (``limits["domestic"]``) of each fuel over the whole network.
+    (``limits["domestic"]``) of each fuel.
 
-    One ``GlobalConstraint`` per fuel, of type ``import_limit`` or
-    ``domestic_limit`` (``constant`` in MWh over the modelled period);
-    ``solve_network`` turns it into a constraint on the components listed in
-    ``IMPORT_FUELS`` / ``DOMESTIC_FUELS``.
+    A value is either one number (whole network) or ``{region: number}`` with a region
+    = comma-separated countries (``patex_supply_limits``). Where the fuel's components
+    are located per node, one ``GlobalConstraint`` per region (``carrier_attribute`` =
+    "fuel|countries"): ``solve_network`` sums the components in the region and, for
+    imports, the gross pipeline inflows from outside it (``PIPELINES``). Where they sit
+    on an EU-wide bus, one cap for the whole network = the sum over the regions.
+    Type ``import_limit`` / ``domestic_limit``, ``constant`` in MWh over the period.
     """
-    from scripts._import_limits_config import DOMESTIC_FUELS, IMPORT_FUELS
+    from scripts._import_limits_config import DOMESTIC_FUELS, IMPORT_FUELS, POOL_OF
 
     fuels = {"import": IMPORT_FUELS, "domestic": DOMESTIC_FUELS}
     for kind, values in limits.items():
@@ -6741,19 +7222,38 @@ def add_supply_limits(
                 f"use {list(fuels[kind])}"
             )
         for fuel, limit in values.items():
-            if limit is None or not np.isfinite(limit):
-                continue
             component, carriers = fuels[kind][fuel]
             if not n.static(component).carrier.isin(carriers).any():
                 logger.info(f"{kind} limit {fuel}: no such component in the network")
-            n.add(
-                "GlobalConstraint",
-                f"{kind} limit {fuel}",
-                type=f"{kind}_limit",
-                carrier_attribute=fuel,
-                sense="<=",
-                constant=limit * 1e6 * nyears,
-            )
+            regions = limit if isinstance(limit, dict) else None
+            where = component_countries(n, component, carriers)
+            located = where.notna().all()
+            split = fuel in POOL_OF and where.notna().any()  # pooled, with copies
+            if regions is not None and (not (located or split) or len(regions) == 1):
+                limit = sum(regions.values())  # EU-wide bus, not split: one summed cap
+                regions = None
+            if regions is None:
+                if limit is None or not np.isfinite(limit):
+                    continue
+                n.add(
+                    "GlobalConstraint",
+                    f"{kind} limit {fuel}",
+                    type=f"{kind}_limit",
+                    carrier_attribute=fuel,
+                    sense="<=",
+                    constant=limit * 1e6 * nyears,
+                )
+                continue
+            for region, value in regions.items():
+                label = "EU" if region.startswith("EU:") else region
+                n.add(
+                    "GlobalConstraint",
+                    f"{kind} limit {fuel} {label}",
+                    type=f"{kind}_limit",
+                    carrier_attribute=f"{fuel}|{region}",
+                    sense="<=",
+                    constant=value * 1e6 * nyears,
+                )
 
 
 def main(
@@ -6806,15 +7306,25 @@ def main(
     patex_cooking_loads = None
     patex_dh_loss = None
     patex_evs = None
+    electric_heat_in_load = None
     if patex["enable"]:
         from patex_pypsa import override_country_totals
 
         patex_totals = pd.read_csv(inputs.patex_energy_totals, index_col=0) * nyears
         if patex["energy_totals"]:
-            # The historical load still holds today's electric heating, which
-            # build_heat_demand subtracts with these (now PatEx) values: the
-            # base-load rescaling at the end of main() fixes the residual.
+            # The measured load holds the electric heating of its own year: keep
+            # PyPSA-Eur's values (weather-year space heating, energy_totals_year
+            # water heating) for build_heat_demand to subtract, so the residual is
+            # the same in every horizon; heat demand itself is PatEx's (audit #5).
+            # The base-load rescaling at the end of main() then sets its total.
             assert patex["base_load"], "patex.energy_totals requires patex.base_load"
+            electric_heat_in_load = pop_weighted_energy_totals[
+                [
+                    f"electricity {sector.value} {use}"
+                    for sector in HeatSector
+                    for use in ["water", "space"]
+                ]
+            ].copy()
             # PatEx columns PyPSA-Eur does not have, split over nodes like the
             # related PyPSA-Eur column
             related = {
@@ -6889,9 +7399,19 @@ def main(
             ]
             # EVs per node: PatEx country fleet, split like PyPSA-Eur's cars
             number_cars = pd.read_csv(inputs.transport_data, index_col=0)["number cars"]
+            parameters = pd.read_csv(inputs.patex_parameters, index_col=0)
+            if "number bev" not in parameters:
+                raise ValueError(
+                    f"{inputs.patex_parameters}: no 'number bev' / 'number phev' (bundle "
+                    "older than T16): re-export it"
+                )
+            # plug-in hybrids weighted by patex.phev_fleet_factor (T16)
+            evs = parameters["number bev"] + patex["phev_fleet_factor"] * parameters[
+                "number phev"
+            ]
             patex_evs = override_country_totals(
                 number_cars.to_frame("number evs"),
-                pd.read_csv(inputs.patex_parameters, index_col=0)[["number evs"]],
+                evs.to_frame("number evs"),
                 pop_layout.ct,
                 pop_layout.fraction,
             ).loc[e.index, "number evs"]
@@ -6914,6 +7434,14 @@ def main(
     fn = inputs.heating_efficiencies
     year = int(params["energy_totals_year"])
     heating_efficiencies = pd.read_csv(fn, index_col=[1, 0]).loc[year]
+    if patex["enable"] and patex["heating_efficiencies"]:
+        # PatEx soft-link (audit #4): heat demand = PatEx's useful heat in the PatEx
+        # countries (their own efficiencies and mix of the horizon, not today's)
+        from patex_pypsa import patex_heating_efficiencies
+
+        heating_efficiencies = patex_heating_efficiencies(
+            heating_efficiencies, pd.read_csv(inputs.patex_parameters, index_col=0)
+        )
 
     spatial = define_spatial(pop_layout.index, options)
 
@@ -7008,6 +7536,14 @@ def main(
             nodes=spatial.nodes,
             patex_energy=patex_land_transport,
             patex_evs=patex_evs,
+            ev_flexibility=(
+                {
+                    **params.ev_flexibility,
+                    "charging_profile_file": inputs.ev_charging_profiles,
+                }
+                if params.ev_flexibility["enable"]
+                else None
+            ),
         )
 
     if options["heating"]:
@@ -7048,6 +7584,8 @@ def main(
             no_district_heating_loss=(
                 patex_dh_loss.index.tolist() if patex_dh_loss is not None else None
             ),
+            electric_heat_in_load=electric_heat_in_load,
+            heat_demand_horizon_file=inputs.get("hourly_heat_demand_horizon"),
         )
 
     if options["biomass"]:
@@ -7081,6 +7619,11 @@ def main(
             cf_industry=cf_industry,
             investment_year=current_horizon,
             hvc_to_air_co2=not patex["enable"] or patex["plastics_eol_co2"],
+            patex_waste_to_energy=(
+                pd.read_csv(inputs.patex_parameters, index_col=0)
+                if patex["enable"] and patex["waste_to_energy"]
+                else None
+            ),
         )
 
     if options["shipping"]:
@@ -7144,6 +7687,9 @@ def main(
         insert_electricity_distribution_grid(
             n, costs, options, pop_layout, inputs.solar_rooftop_potentials
         )
+        dist_cfg = params.get("distribution_grid") or {}
+        if dist_cfg.get("enable"):
+            refine_distribution_grid(n, costs, dist_cfg)
 
     if options["enhanced_geothermal"].get("enable", False):
         logger.info("Adding Enhanced Geothermal Systems (EGS).")
@@ -7178,12 +7724,52 @@ def main(
                 params.countries,
                 inputs.eurostat,
                 int(params.energy_totals_year),
+                patex["fallback_countries"],
+                inputs.get("population") or None,
             ).items():
                 limits[kind].update(values)
+        total = lambda v: sum(v.values()) if isinstance(v, dict) else v  # noqa: E731
         add_domestic_supply(
-            n, costs, [f for f, v in limits["domestic"].items() if v > 0], spatial
+            n, costs, [f for f, v in limits["domestic"].items() if total(v) > 0], spatial
         )
+        if patex["enable"] and patex["import_limits"]:
+            # countries outside the PatEx region: own supply on the EU-wide pools
+            outside = [c for c in params.countries if c in patex["fallback_countries"]]
+            split_pooled_supply(n, outside)
+            add_boundary_tie_break(
+                n, outside, params.import_limits["transit_penalty"]
+            )
         add_supply_limits(n, limits, nyears)
+
+    # geological CO2 storage (T32): per country from injection projects, total from PatEx
+    if params.co2_storage["enable"] or (patex["enable"] and patex["co2_sequestration"]):
+        from scripts._co2_storage import (
+            add_co2_storage_limits,
+            add_patex_sequestration_limit,
+            country_storage_limits,
+            patex_sequestration_limit,
+        )
+
+        if foresight == "perfect":
+            raise NotImplementedError(
+                "co2_storage / patex.co2_sequestration: myopic or overnight only"
+            )
+        if params.co2_storage["enable"]:
+            projects = pd.read_csv(inputs.co2_storage_projects)
+            limits = country_storage_limits(
+                projects, investment_year, params.co2_storage, list(params.countries)
+            )
+            add_co2_storage_limits(n, limits, nyears)
+        if patex["enable"] and patex["co2_sequestration"]:
+            add_patex_sequestration_limit(
+                n,
+                patex_sequestration_limit(
+                    inputs.patex_parameters,
+                    list(params.countries),
+                    patex["fallback_countries"],
+                ),
+                nyears,
+            )
 
     if options["gas_distribution_grid"]:
         insert_gas_distribution_costs(n, costs, options=options)
@@ -7215,11 +7801,124 @@ def main(
     if patex["enable"] and patex["base_load"]:
         weights = n.snapshot_weightings.generators
         elec = n.loads.index[n.loads.carrier == "electricity"]
-        for ct, total in patex_totals["electricity base load"].items():
+        location = n.loads.loc[elec, "bus"].map(n.buses.location).replace("", np.nan)
+        location = location.fillna(n.loads.loc[elec, "bus"])
+        # countries outside PatEx on the EU trend (patex.fallback_demand: eu_trend):
+        # no absolute target, the measured residual load × the EU's relative change
+        base_factor = pd.read_csv(inputs.patex_parameters, index_col=0).get(
+            "electricity base load factor", pd.Series(dtype=float)
+        )
+        base_target = patex_totals["electricity base load"]
+        cooling_columns = {
+            sector: f"electricity {sector} space cooling"
+            for sector in ("residential", "services")
+        }
+        has_cooling = set(cooling_columns.values()) <= set(patex_totals.columns)
+        cooling_shapes = None
+        if patex["cooling"]:
+            # audit #5b: PatEx cooling as its own load, today's out of the measured one
+            if not has_cooling:
+                raise ValueError(
+                    f"patex.cooling: bundle without {sorted(cooling_columns.values())}: "
+                    "re-export it (patex-pypsa export-coupling)"
+                )
+            patex_countries = list(base_target.index[base_target.notna()])
+
+            def shapes(file):
+                profiles = xr.open_dataset(file)
+                return {
+                    sector: patex_cooling_shape(
+                        profiles[sector].to_pandas(),
+                        location,
+                        pop_layout.fraction,
+                        weights,
+                        patex_countries,
+                    )
+                    for sector in cooling_columns
+                }
+
+            # today's cooling: weather year's climate; PatEx's: the horizon's
+            # (patex.temperature_shift), if any
+            cooling_shapes = shapes(inputs.patex_cooling_profile)
+            horizon_file = inputs.get("patex_cooling_profile_horizon")
+            cooling_shapes_horizon = shapes(horizon_file) if horizon_file else cooling_shapes
+            cooling_today = pd.read_csv(inputs.patex_cooling_today, index_col=0) * nyears
+        elif has_cooling:
+            # cooling stays in the base load (bundle base load excludes it)
+            base_target = base_target + patex_totals[list(cooling_columns.values())].sum(
+                axis=1, min_count=1
+            )
+
+        def cooling_load(ct, loads_i, energy, shapes):
+            """MW per load of ``loads_i``: ``energy`` [TWh] per sector × its shape."""
+            return sum(
+                shapes[sector][location[loads_i]].set_axis(loads_i, axis=1)
+                * energy[sector]
+                * 1e6
+                for sector in cooling_columns
+            )
+
+        for ct, total in base_target.items():
             loads_i = elec[elec.str[:2] == ct]
+            if loads_i.empty:  # bundle country not modelled
+                continue
+            patex_country = pd.notna(total)
+            if cooling_shapes is not None and patex_country:
+                today = cooling_today.reindex([ct]).iloc[0]
+                if today.isna().any():
+                    logger.warning(
+                        f"PatEx cooling {ct}: no JRC-IDEES value of today's electric "
+                        "cooling, none taken out of the measured load"
+                    )
+                else:
+                    n.loads_t.p_set[loads_i] -= cooling_load(
+                        ct, loads_i, today, cooling_shapes
+                    )
+            # residual before rescaling: same in every horizon (audit #5)
+            residual = n.loads_t.p_set[loads_i].sum(axis=1)
+            monthly = residual.groupby(residual.index.month).mean()
+            logger.info(
+                f"PatEx base load {ct}: residual before rescaling "
+                f"{residual.multiply(weights).sum() / 1e6:.2f} TWh, "
+                f"Jan/Aug {monthly.get(1, float('nan')) / monthly.get(8, float('nan')):.3f}, "
+                f"min {residual.min():.0f} MW"
+            )
+            # Hours where PyPSA-Eur's electric heating (heat-demand profile, morning
+            # peak) or today's cooling exceeds the measured load: no negative base
+            # load, set to 0 (user, 2026-11-16; IE: night storage heaters)
+            negative = n.loads_t.p_set[loads_i] < 0
+            if negative.any().any():
+                clipped = (
+                    n.loads_t.p_set[loads_i]
+                    .where(negative, 0.0)
+                    .multiply(weights, axis=0)
+                    .sum()
+                    .sum()
+                )
+                logger.warning(
+                    f"PatEx base load {ct}: negative residual in "
+                    f"{int(negative.any(axis=1).sum())} snapshots ({-clipped / 1e3:.1f} GWh) "
+                    "set to 0 before rescaling"
+                )
+                n.loads_t.p_set[loads_i] = n.loads_t.p_set[loads_i].clip(lower=0.0)
+            if not patex_country:
+                factor = base_factor.get(ct, float("nan"))
+                if pd.isna(factor):
+                    raise ValueError(f"PatEx base load: no value or factor for {ct}")
+                n.loads_t.p_set[loads_i] *= factor
+                continue
             current = n.loads_t.p_set[loads_i].multiply(weights, axis=0).sum().sum()
             if current > 0:
                 n.loads_t.p_set[loads_i] *= total * 1e6 / current
+            if cooling_shapes is not None:
+                patex_cooling = pd.Series(
+                    {s: patex_totals.at[ct, c] for s, c in cooling_columns.items()}
+                )
+                add_patex_cooling_load(
+                    n,
+                    loads_i,
+                    cooling_load(ct, loads_i, patex_cooling, cooling_shapes_horizon),
+                )
 
     # PatEx soft-link: rail, aviation and shipping electricity and hydrogen rail
     # as own loads (shape of the rescaled base load, so after it)

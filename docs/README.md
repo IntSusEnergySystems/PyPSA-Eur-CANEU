@@ -13,7 +13,7 @@ the reasons behind each choice are in the "Why" section of each sector file and 
 | Transport (road, rail, aviation, navigation, EV fleet) | [transport.md](transport.md) |
 | Industry (carriers, feedstock, process emissions, plastics) | [industry.md](industry.md) |
 | Agriculture | [agriculture.md](agriculture.md) |
-| Energy system (base load, CO2 intensities, CO2 budget, power, imports, nuclear, waste) | [energy.md](energy.md) |
+| Energy system (base load, CO2 intensities, CO2 budget, power, imports, nuclear, wind and solar limits, cross-border transmission, CO2 storage, waste) | [energy.md](energy.md) |
 
 ## Rule of the link
 
@@ -35,7 +35,8 @@ patex run ... -o run.pkl                       PatEx (uv env, pandas 2.2)
        └─ <coupling_dir>/pypsa_inputs/         the "bundle", CSV only
             patex_energy_totals_{h}.csv        country × energy_totals columns [TWh]
             patex_industry_{h}.csv             country × industrial demand columns [TWh, MtCO2]
-            patex_parameters_{h}.csv           district heat share, number evs
+            patex_parameters_{h}.csv           district heat share, DH loss, number bev / phev,
+                                               co2 stored [Mt/a]
             patex_co2_intensity_{h}.csv        gas / oil / coal, oil refining [tCO2/MWh]
             manifest.json                      checksums, horizons, countries
 rule build_patex_demands (rules/patex.smk)     copies one horizon into resources/, fails if
@@ -65,17 +66,29 @@ keep PyPSA-Eur's values.
 |---|---|---|
 | `enable` | false | every hook below; without it the fork behaves as upstream |
 | `coupling_dir` | — | bundle directory (`.../runs/<scenario>`) |
-| `fallback_countries` | AL BA CH GB ME MK NO RS XK | keep PyPSA-Eur demands |
+| `fallback_countries` | AL BA CH GB ME MK NO RS XK | countries without PatEx data |
+| `fallback_demand` | `pypsa` (`eu_trend` in config.patex.yaml) | their demand: PyPSA-Eur's own, or their base-year data on PatEx's EU trend ([energy.md](energy.md)) |
+| `fallback_import_caps` | `eu_per_capita` | their import caps: EU cap per person × population, or today's Eurostat imports |
 | `energy_totals` | true | buildings, transport, agriculture totals |
 | `industry` | true | industry carriers, feedstock gas, process emissions |
 | `co2_intensity` | true | CO2 intensity of gas / oil / coal, refinery CO2 |
 | `district_heating` | true | district heating share |
+| `heating_efficiencies` | true | PatEx's final-to-useful heat efficiencies: heat demand = PatEx useful heat ([buildings.md](buildings.md)) |
 | `base_load` | true | residual electricity load (required by `energy_totals`) |
+| `cooling` | true (false by default) | PatEx residential and services electric cooling as its own load with the Hotmaps cooling profiles, today's (JRC-IDEES) out of the measured load (audit #5b) |
+| `gb_load_dukes` | true (false by default) | GB load of the weather year scaled to DUKES "electricity available" ([energy.md](energy.md)) |
+| `temperature_shift` | {} (run 24h-2023-shift: {2030: 0.3, 2040: 0.7}) | °C added to the weather year's temperature per horizon for heat demand, cooling, COPs and DH temperatures ([energy.md](energy.md)) |
+| `co2_sequestration` | true | total CO2 sequestration cap = PatEx CO2 stored ([energy.md](energy.md)) |
 | `plastics_eol_co2` | false | CO2 of plastics not burned for energy (false = PatEx convention) |
+| `waste_to_energy` | false (true in config.patex.yaml) | PatEx's non-renewable waste-to-energy burned in waste CHPs as a must-burn ([industry.md](industry.md)) |
+| `import_limits` | true | with `import_limits.enable`: import caps per fuel = PatEx imports of the modelled countries |
+| `phev_fleet_factor` | 0 | weight of a plug-in hybrid in the EV fleet (chargers, EV batteries) |
 
-Run configs: `config/config.patex.yaml` (settings common to every PatEx run) plus a run
-overlay in `config/patex/` (countries, bundle, resolution), e.g.
-`pixi run snakemake --configfile config/config.patex.yaml config/patex/levers2-be-lu-nl.yaml`.
+Run configs: `config/config.patex.yaml` (settings common to every PatEx run) plus overlays
+in `config/patex/`: region and bundle (`levers2-nwe-bz.yaml`), CO2 cap and resolution
+(`co2-cap-90-2040-24h.yaml`), then a run overlay (run name and run-specific settings, e.g.
+`24h-2023-shift.yaml`). On nic6 only (`CLUSTER_NIC6.md`):
+`pixi run snakemake --configfile config/config.patex.yaml config/patex/levers2-nwe-bz.yaml config/patex/co2-cap-90-2040-24h.yaml config/patex/24h-2023-shift.yaml`.
 
 ## Checks
 

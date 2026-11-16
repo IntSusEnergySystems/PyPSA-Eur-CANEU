@@ -1,0 +1,10 @@
+# Run name: as 24h-wte (audit #1, #1b, #1c, #2), plus the audit fixes of 2026-11-16:
+# #3 offshore class potentials scaled to the cap, #4 building heat = PatEx useful heat
+# (district heat share on useful heat), #5 base load: PyPSA-Eur's own electric heating
+# out of the measured load (negative hours set to 0), #5b PatEx electric cooling as its
+# own load; DAC off (sector.dac: false). Bundle levers2 re-exported 2026-11-16. Add last:
+#   --configfile config/config.patex.yaml config/patex/levers2-nwe-bz.yaml \
+#                config/patex/co2-cap-90-2040-24h.yaml config/patex/24h-audit.yaml
+
+run:
+  name: patex-levers2-nwe-bz-co2-90-2040-24h-audit

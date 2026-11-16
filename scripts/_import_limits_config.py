@@ -44,6 +44,41 @@ DOMESTIC_FUELS = {
 }
 
 
+#: fuel → links carrying it between countries: their gross inflow into a region counts
+#: as an import of that region (pipelines are one-way link pairs in PyPSA-Eur)
+PIPELINES = {
+    "gas": ["gas pipeline", "gas pipeline new"],
+    "H2": ["H2 pipeline", "H2 pipeline retrofitted"],
+}
+
+#: fuels supplied on an EU-wide bus ("pool"): bus carriers of the pool. Countries outside
+#: the PatEx region get their own copy of the pool's import / production components;
+#: their net annual flow into the pool counts as an import of the EU (and their net draw
+#: from it as their own import), in the cap of ``POOL_FLOW_FUEL``
+POOLS = {
+    "oil": ["oil primary", "oil"],
+    "coal": ["coal", "lignite"],
+    "methanol": ["methanol"],
+    "NH3": ["NH3"],
+}
+#: fuel → pool it is supplied into
+POOL_OF = {"oil": "oil", "synthetic oil": "oil", "bioliquids": "oil", "coal": "coal",
+           "methanol": "methanol", "NH3": "NH3"}
+#: pool → fuel whose cap counts the net flows (liquids of any origin count as oil)
+POOL_FLOW_FUEL = {"oil": "oil", "coal": "coal", "methanol": "methanol", "NH3": "NH3"}
+
+#: Eurostat SIEC of the imports and domestic production of countries without PatEx data
+#: (`patex.fallback_countries`, e.g. GB, NO); a fuel without code: no import today, cap 0
+EUROSTAT_IMPORTS = {
+    "gas": ["G3000"],
+    "oil": ["O4000XBIO"],
+    "coal": ["C0000X0350-0370"],
+    "solid biomass": ["R5110-5150_W6000RI"],
+    "biogas": ["R5300"],
+    "bioliquids": ["R5210P", "R5220P", "R5230P", "R5290"],
+}
+
+
 class ImportLimitsConfig(BaseModel):
     """Caps on gross imports per fuel, summed over all modelled countries."""
 
@@ -62,6 +97,14 @@ class ImportLimitsConfig(BaseModel):
         + ", ".join(DOMESTIC_FUELS)
         + "). Adds a domestic generator for oil and coal (PyPSA-Eur has none: "
         "without it all their supply counts as import); lignite counts as coal.",
+    )
+    transit_penalty: float = Field(
+        0.01,
+        description="Tie-break [EUR/MWh] on fuel flows between the PatEx region and a "
+        "modelled non-PatEx country (net flows into or out of the EU-wide pools; gas and "
+        "H2 pipelines crossing that boundary). Trade costs the same as importing from "
+        "abroad; without it the solver is indifferent and may route one side's imports "
+        "through the other. Not a cost estimate.",
     )
     bio_imports: list[str] = Field(
         default_factory=list,

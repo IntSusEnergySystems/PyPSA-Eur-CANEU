@@ -9,6 +9,11 @@ Any imports included in this file will be automatically registered as config upd
 See the docs for more details: https://pypsa-eur.readthedocs.io/en/latest/validation_dev/#soft_fork_ext
 """
 
+import scripts._co2_storage_config  # noqa: F401
+import scripts._distribution_grid_config  # noqa: F401
+import scripts._ev_flexibility_config  # noqa: F401
 import scripts._import_limits_config  # noqa: F401
+import scripts._interconnection_limits_config  # noqa: F401
 import scripts._nuclear_fleet_config  # noqa: F401
 import scripts._patex_config  # noqa: F401
+import scripts._renewable_limits_config  # noqa: F401

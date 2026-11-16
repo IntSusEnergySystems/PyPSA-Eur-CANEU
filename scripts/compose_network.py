@@ -22,6 +22,7 @@ applied and the network is exported for solving.
 
 import logging
 
+import pandas as pd
 import pypsa
 
 from scripts._helpers import (
@@ -45,6 +46,11 @@ from scripts.prepare_network import (
 )
 from scripts.prepare_network import main as prepare_network_for_solving
 from scripts._nuclear_fleet import apply_nuclear_fleet
+from scripts._interconnection_limits import apply_interconnection_limits
+from scripts._renewable_limits import (
+    apply_renewable_limits,
+    scale_offshore_potentials,
+)
 from scripts.prepare_perfect_foresight import apply_phase_outs
 from scripts.prepare_perfect_foresight import main as prepare_perfect_foresight
 from scripts.prepare_sector_network import (
@@ -122,6 +128,22 @@ if __name__ == "__main__":
         | (SECTOR_RENEWABLE_CARRIERS & set(n.generators.carrier))
     )
 
+    # wind and solar caps per country (T31): inputs read once; offshore class
+    # potentials scaled to the country cap where it is above them, before existing
+    # capacity is subtracted per class (first horizon below, brownfield later)
+    if params.renewable_limits["enable"]:
+        if foresight == "perfect":
+            raise NotImplementedError("renewable_limits: myopic or overnight only")
+        limits_inputs = dict(
+            goals=pd.read_csv(inputs.offshore_wind_goals),
+            planned=pd.read_csv(inputs.renewables_planned)
+            if params.renewable_limits["planned_file"]
+            else None,
+        )
+        scale_offshore_potentials(
+            n, int(current_horizon), params.renewable_limits, **limits_inputs
+        )
+
     if foresight != "overnight" and is_first_horizon:
         add_existing_capacities(n, inputs, params, costs)
         if foresight == "myopic":
@@ -145,6 +167,32 @@ if __name__ == "__main__":
             current_horizon,
             {**params.nuclear_fleet, "fleet_file": inputs.nuclear_fleet},
             params.conventional.get("nuclear", {}).get("p_max_pu"),
+        )
+
+    # wind and solar caps per country: offshore goals, planned 2030 capacity (T31)
+    if params.renewable_limits["enable"]:
+        apply_renewable_limits(
+            n,
+            int(current_horizon),
+            params.renewable_limits,
+            **limits_inputs,
+            ground_pv=pd.read_csv(inputs.ground_pv)
+            if params.renewable_limits.get("ground_pv_file")
+            else None,
+        )
+
+    # cross-border capacity per border: factor x (grid + TYNDP projects) (T30)
+    if params.interconnection_limits["enable"]:
+        if foresight == "perfect":
+            raise NotImplementedError("interconnection_limits: myopic or overnight only")
+        apply_interconnection_limits(
+            n,
+            int(current_horizon),
+            params.interconnection_limits,
+            pd.read_csv(inputs.interconnection_projects),
+            pd.read_csv(inputs.interconnection_ntc)
+            if params.interconnection_limits["ntc_file"]
+            else None,
         )
 
     if foresight == "perfect":

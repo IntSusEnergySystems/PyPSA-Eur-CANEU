@@ -312,8 +312,14 @@ def add_dynamic_emission_prices(n, fn):
     n.generators.loc[affected, "marginal_cost"] = 0.0
 
 
-def set_transmission_limit(n, kind, factor, costs, Nyears=1):
+def set_transmission_limit(n, kind, factor, costs, Nyears=1, skip_reversed=False):
     links_dc_b = n.links.carrier == "DC" if not n.links.empty else pd.Series()
+    # reference volume / cost: the reversed twins of lossy bidirectional DC links
+    # share the forward leg's capacity and are not counted again (PyPSA-Eur-CANEU);
+    # they stay extendable below, which the bidirectional sync constraint needs
+    ref_dc_b = links_dc_b
+    if skip_reversed and not n.links.empty and "reversed" in n.links:
+        ref_dc_b = links_dc_b & ~n.links["reversed"].fillna(False).astype(bool)
 
     _lines_s_nom = (
         np.sqrt(3)
@@ -326,10 +332,10 @@ def set_transmission_limit(n, kind, factor, costs, Nyears=1):
     col = "capital_cost" if kind == "c" else "length"
     ref = (
         lines_s_nom @ n.lines[col]
-        + n.links.loc[links_dc_b, "p_nom"] @ n.links.loc[links_dc_b, col]
+        + n.links.loc[ref_dc_b, "p_nom"] @ n.links.loc[ref_dc_b, col]
     )
 
-    set_transmission_costs(n, costs)
+    set_transmission_costs(n, costs, skip_reversed=skip_reversed)
 
     if factor == "opt" or float(factor) > 1.0:
         n.lines["s_nom_min"] = lines_s_nom
@@ -488,7 +494,11 @@ def main(
             "transmission_limit must be a string like 'c1.25' or a (kind, factor) pair"
         )
 
-    set_transmission_limit(n, kind, factor, costs, nyears)
+    patex_cfg = getattr(params, "patex", None) or {}
+    set_transmission_limit(
+        n, kind, factor, costs, nyears,
+        skip_reversed=bool(patex_cfg.get("enable", False)),
+    )
 
     cap_transmission_capacity(
         n,
